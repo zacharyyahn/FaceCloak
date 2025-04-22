@@ -6,8 +6,9 @@ import random
 
 # Evaluator class takes a dataset and produces embeddings for every item in the dataset. It contains methods for evaluating the performance of a set of facial recognition models on that dataset by comparing embedding distances.
 class Evaluator:
-    def __init__(self, dataset_path, models):
+    def __init__(self, dataset_path, models, cloaked_path=None):
         self.paths = []
+        self.cloaked_paths = []
         self.models = models
         self.embed_map = {model: {} for model in self.models} # save an embedding map for each model
         
@@ -15,8 +16,12 @@ class Evaluator:
         for path in os.listdir(dataset_path):
             self.paths.append(dataset_path + "/" + path)
         print("Finished reading in dataset paths")
+        
+        if cloaked_path:
+            for path in os.listdir(cloaked_path):
+                self.cloaked_paths.append(cloaked_path + "/" + path)
         #self.paths = self.paths[:50]
-
+        #self.cloaked_paths = self.cloaked_paths[:10]
     # Compute the L2 distance for two embeddings. Used to measure similarity of facial images
     def L2_dist(self, embed1, embed2):
         np_embed1 = np.array(embed1)
@@ -35,6 +40,17 @@ class Evaluator:
                     self.embed_map[model][self.paths[i]] = emb
                 except Exception as e:
                     self.embed_map[model][self.paths[i]] = None
+    
+    def compute_single_embedding(self, path):
+        embs = {}
+        for model in self.models:
+            try:
+                out = DeepFace.represent(img_path = self.paths[i], model_name = model)
+                embs[model] = out[0]["embedding"]
+            except:
+                print("Error, this image did not work")
+        return embs
+
 
     # Find the top-k most similar images to a given image. Currently only works for k=1
     def find_most_similar(self, path, k=1):
@@ -51,13 +67,26 @@ class Evaluator:
             similars[model] = most_similar
         return similars
 
+    def find_most_similar_by_embed(self, embed, k=1):
+        similars = {}
+        for model in self.models:
+            min_dist = 1000000
+            most_similar = ""
+            for query in self.embed_map[model].keys():
+                this_similar = self.L2_dist(embed[model], self.embed_map[model][query])
+                if this_similar < min_dist:
+                    min_dist = this_similar
+                    most_similar = query
+            similars[model] = most_similar
+        return similars
+
     # For each selected image, find the most similar one. Mark if that is correct or incorrect. 
     def evaluate(self, num_images):
         totals = {model: 0 for model in self.models}
 
         print("Evaluating on", num_images, "images...")
         for i in tqdm(range(num_images)):
-            idx = random.randint(0, num_images - 1)
+            idx = random.randint(0, len(self.paths)-1)
             this_path = self.paths[idx]
             if self.embed_map[self.models[0]][this_path] is None: # Skip if we have a null image with no face
                 continue
@@ -65,12 +94,29 @@ class Evaluator:
             similars = self.find_most_similar(this_path, k=1)
             for model, match in similars.items():
                 match_name = os.path.basename(match)[:os.path.basename(match).find("_")]
-                print("Query", path_name, "matched with", match_name) 
+                #print("Query", path_name, "matched with", match_name) 
                 if path_name == match_name:
                     totals[model] += 1
         
         for model in totals:
             print(f"{model} acc: %0.4f" % (totals[model] / float(num_images)))
 
+    def evaluate_cloaked(self, num_images):
+        totals = {model: 0 for model in self.models}
 
+        print("Evaluating on", num_images, "cloaked images....")
+        for i in tqdm(range(num_images)):
+            idx = random.randint(0, len(self.cloaked_paths)-1)
+            this_path = self.cloaked_paths[idx]
+            path_name = os.path.basename(this_path)[:os.path.basename(this_path).find("_")]
+            this_embed = self.compute_single_embed(this_path)
+            similars = self.find_most_similar_by_embed(this_embed)
+            for model, match in similars.items():
+                match_name = os.path.basename(match)[:os.path.basename(match).find("_")]
+                #print("Query", path_name, "matched with", match_name)
+                if path_name == match_name:
+                    totals[model] += 1
+
+        for model in totals:
+            print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(num_images)))
 
