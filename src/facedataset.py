@@ -1,15 +1,19 @@
 from torch.utils.data import Dataset
+import random
 import os
 import cv2
 
 class FaceDataset(Dataset):
-    def __init__(self, dataset_path, transforms = None):
+    def __init__(self, dataset_path, transforms = None, num_images=1.0):
         self.paths = []
         self.transforms = transforms
         self.tanh_constant = 2 - 1e-6
         for path in os.listdir(dataset_path):
             self.paths.append(dataset_path + "/" + path)
-        self.paths = self.paths[:5]
+        if num_images != 1.0:
+            random.shuffle(self.paths)
+            self.paths = self.paths[:int(num_images * len(self.paths))]
+        print("Loading dataset with", len(self.paths), "images.")
 
     #NOTE: MAY NEED TO APPLY INPUT TRANSFORMS
     def __getitem__(self, idx):

@@ -6,7 +6,7 @@ import random
 
 # Evaluator class takes a dataset and produces embeddings for every item in the dataset. It contains methods for evaluating the performance of a set of facial recognition models on that dataset by comparing embedding distances.
 class Evaluator:
-    def __init__(self, dataset_path, models, cloaked_path=None):
+    def __init__(self, dataset_path, models, dataset_size = 0.01, cloaked_path=None):
         self.paths = []
         self.cloaked_paths = []
         self.models = models
@@ -14,12 +14,16 @@ class Evaluator:
         
         # Load in the dataset and save the paths
         for path in os.listdir(dataset_path):
-            self.paths.append(dataset_path + "/" + path)
-        print("Finished reading in dataset paths")
+            self.paths.append(dataset_path + path)
         
+        random.shuffle(self.paths)
+        self.paths = self.paths[:int(dataset_size * len(self.paths))]
+        print("Finished reading in", len(self.paths), "dataset paths")
+
         if cloaked_path:
             for path in os.listdir(cloaked_path):
-                self.cloaked_paths.append(cloaked_path + "/" + path)
+                self.cloaked_paths.append(cloaked_path + path)
+            print("Finished reading in cloaked paths")
         #self.paths = self.paths[:50]
         #self.cloaked_paths = self.cloaked_paths[:10]
     # Compute the L2 distance for two embeddings. Used to measure similarity of facial images
@@ -39,16 +43,18 @@ class Evaluator:
                     emb = out[0]["embedding"]
                     self.embed_map[model][self.paths[i]] = emb
                 except Exception as e:
-                    self.embed_map[model][self.paths[i]] = None
-    
+                    print("Error in compute_embeddings", e)
+                    #self.embed_map[model][self.paths[i]] = None
+        print("Finished computing", len(self.paths), "embeddings")
+
     def compute_single_embedding(self, path):
         embs = {}
         for model in self.models:
             try:
-                out = DeepFace.represent(img_path = self.paths[i], model_name = model)
+                out = DeepFace.represent(img_path = path, model_name = model)
                 embs[model] = out[0]["embedding"]
-            except:
-                print("Error, this image did not work")
+            except Exception as e:
+                print("Error in compute_single_embedding", e, "this image did not work")
         return embs
 
 
@@ -83,9 +89,10 @@ class Evaluator:
     # For each selected image, find the most similar one. Mark if that is correct or incorrect. 
     def evaluate(self, num_images):
         totals = {model: 0 for model in self.models}
-
+        
         print("Evaluating on", num_images, "images...")
         for i in tqdm(range(num_images)):
+            # Select a random image 
             idx = random.randint(0, len(self.paths)-1)
             this_path = self.paths[idx]
             if self.embed_map[self.models[0]][this_path] is None: # Skip if we have a null image with no face
@@ -104,19 +111,36 @@ class Evaluator:
     def evaluate_cloaked(self, num_images):
         totals = {model: 0 for model in self.models}
 
+        # Iterate through each item in the dataset and evaluate them
         print("Evaluating on", num_images, "cloaked images....")
-        for i in tqdm(range(num_images)):
-            idx = random.randint(0, len(self.cloaked_paths)-1)
-            this_path = self.cloaked_paths[idx]
+        itr = 0
+        for i, this_path in tqdm(enumerate(self.cloaked_paths)):
+            
+            # Track how many we have looked at at stop if we excede the desired number
+            itr += 1
+            if itr > num_images:
+                break
+
+            # Extract the base name from the path
             path_name = os.path.basename(this_path)[:os.path.basename(this_path).find("_")]
-            this_embed = self.compute_single_embed(this_path)
+            
+            # Compute the embedding of the path
+            this_embed = self.compute_single_embedding(this_path)
+            
+            # Catch the case where we can't find a face in the cloaked image
+            if this_embed == {}:
+                continue
+
+            # Find the similar items
             similars = self.find_most_similar_by_embed(this_embed)
+            
+            # Look at the most similar item for each model, and see which ones are accurate
             for model, match in similars.items():
                 match_name = os.path.basename(match)[:os.path.basename(match).find("_")]
-                #print("Query", path_name, "matched with", match_name)
                 if path_name == match_name:
                     totals[model] += 1
 
+        # Print the accuracy
         for model in totals:
-            print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(num_images)))
+            print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(itr)))
 
