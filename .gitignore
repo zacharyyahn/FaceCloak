@@ -5,6 +5,7 @@ __pycache__/
 
 data/*
 model_checkpoints/*
+autoscripts/*
 
 # C extensions
 *.so

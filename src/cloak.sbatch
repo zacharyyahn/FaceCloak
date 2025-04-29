@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -JFaceCloak
-#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
+#SBATCH -N1 --gres=gpu:1 --ntasks-per-node=4 --mem-per-gpu=80G 
 #SBATCH -n4 -t16:00:00
-#SBATCH -ooutput/evaluate_cloak.out
+#SBATCH -ooutput/cloak_pubfig_facenet_cosine_pgd_triplet_100.out
 
 module load anaconda3
 conda init
@@ -16,10 +16,9 @@ echo $CONDA_PREFIX
 
 
 #TODO:
-# - Separate out the cloaking function so that it is modular and can incorporate different loss functions. Maybe even make it it's own class?
 # - Add a seed functionality so that results are replicable
 # - Need to see if MTCNN features can be improved. Does size of input image matter? What about postprocessing?
-
+# - Perceptual loss capabilities
 
 # ---- Parameters ----
 # dataset_path: string path to dataset file
@@ -29,4 +28,20 @@ echo $CONDA_PREFIX
 # num_cloaked_images: int number of images to cloak
 # num_dataset_images: float fraction of dataset to include in calculations
 
-python src/cloak.py --dataset_path "data/pubfig_flat" --batch_size 1 --target_pool_size 100 --cropped_im_size 112 --num_cloaked_images 5 --num_dataset_images 1.0 --cloak_save_path "data/pubfig_cloaked_test" --verbosity "none"
+python src/cloak.py --dataset_path "data/pubfig_flat" \
+	--batch_size 1 \
+	--target_pool_size 500 \
+	--cropped_im_size 112 \
+	--num_cloaked_images 1000 \
+	--num_dataset_images 1.0 \
+	--norm_function "tanh" \
+	--cloak_save_path "data/pubfig_cloaked_facenet_cosine_pgd_triplet_100" \
+	--extractor_type "Facenet" \
+	--distance_function "cosine" \
+	--cloak_function "pgd_cloak" \
+	--cloak_loss "triplet" \
+	--cloak_function_iters 100 \
+	--cloak_function_step 0.00784 \
+	--cloak_function_max_pert 0.0627 \
+	--cloak_function_lr 0.5 \
+	--verbosity "none"

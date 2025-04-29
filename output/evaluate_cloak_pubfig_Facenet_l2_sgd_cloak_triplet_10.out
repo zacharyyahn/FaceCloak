@@ -1,0 +1,23 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-28-2025 21:11:53
+Job ID:    2544052
+User ID:   zyahn3
+Account:   scs
+Job name:  FaceEval
+Partition: ice-gpu
+QOS:       coc-ice
+---------------------------------------
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/condabin/conda
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/conda
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/conda-env
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/activate
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/deactivate
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/profile.d/conda.sh
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/fish/conf.d/conda.fish
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/shell/condabin/Conda.psm1
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/shell/condabin/conda-hook.ps1
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/lib/python3.10/site-packages/xontrib/conda.xsh
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/profile.d/conda.csh
+no change     /home/hice1/zyahn3/.bashrc
+No action taken.
+/home/hice1/zyahn3/.conda/envs/Face

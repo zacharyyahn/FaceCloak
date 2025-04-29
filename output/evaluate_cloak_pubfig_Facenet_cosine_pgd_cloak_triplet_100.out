@@ -1,0 +1,28 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-28-2025 21:11:53
+Job ID:    2544040
+User ID:   zyahn3
+Account:   scs
+Job name:  FaceEval
+Partition: coc-gpu
+QOS:       coc-ice
+---------------------------------------
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/condabin/conda
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/conda
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/conda-env
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/activate
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/bin/deactivate
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/profile.d/conda.sh
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/fish/conf.d/conda.fish
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/shell/condabin/Conda.psm1
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/shell/condabin/conda-hook.ps1
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/lib/python3.10/site-packages/xontrib/conda.xsh
+no change     /usr/local/pace-apps/manual/packages/anaconda3/2023.03/etc/profile.d/conda.csh
+no change     /home/hice1/zyahn3/.bashrc
+No action taken.
+/home/hice1/zyahn3/.conda/envs/Face
+Finished reading in 13803 dataset paths
+Finished reading in 985 paths
+----------- GALLERY SIZE: 5 -----------
+Evaluating on 500 cloaked images....
+  0%|          | 0/500 [00:00<?, ?it/s]  0%|          | 1/500 [00:00<03:40,  2.26it/s]  0%|          | 2/500 [00:00<03:37,  2.29it/s]  1%|          | 3/500 [00:01<03:35,  2.31it/s]  1%|          | 4/500 [00:01<03:33,  2.32it/s]  1%|          | 5/500 [00:02<03:20,  2.47it/s]  1%|          | 6/500 [00:02<03:24,  2.41it/s]  1%|▏         | 7/500 [00:02<03:24,  2.41it/s]  2%|▏         | 8/500 [00:03<03:25,  2.39it/s]  2%|▏         | 9/500 [00:03<03:24,  2.40it/s]  2%|▏         | 10/500 [00:04<03:26,  2.37it/s]  2%|▏         | 11/500 [00:04<03:27,  2.36it/s]  2%|▏         | 12/500 [00:05<03:27,  2.35it/s]  3%|▎         | 13/500 [00:05<03:24,  2.39it/s]  3%|▎         | 14/500 [00:05<03:24,  2.37it/s]  3%|▎         | 15/500 [00:06<03:24,  2.37it/s]  3%|▎         | 16/500 [00:06<03:23,  2.38it/s]  3%|▎         | 17/500 [00:07<03:23,  2.37it/s]  4%|▎         | 18/500 [00:07<03:22,  2.38it/s]  4%|▍         | 19/500 [00:08<03:22,  2.37it/s]  4%|▍         | 20/500 [00:08<03:20,  2.39it/s]  4%|▍         | 21/500 [00:08<03:20,  2.39it/s]  4%|▍         | 22/500 [00:09<03:22,  2.36it/s]  5%|▍         | 23/500 [00:09<03:23,  2.34it/s]  5%|▍         | 24/500 [00:10<03:21,  2.36it/s]  5%|▌         | 25/500 [00:10<03:25,  2.31it/s]  5%|▌         | 26/500 [00:10<03:23,  2.32it/s]  5%|▌         | 27/500 [00:11<03:22,  2.34it/s]  6%|▌         | 28/500 [00:11<03:25,  2.29it/s]  6%|▌         | 29/500 [00:12<03:23,  2.32it/s]  6%|▌         | 30/500 [00:12<03:27,  2.27it/s]  6%|▌         | 31/500 [00:13<03:25,  2.28it/s]  6%|▋         | 32/500 [00:13<03:23,  2.30it/s]  7%|▋         | 33/500 [00:14<03:21,  2.31it/s]  7%|▋         | 34/500 [00:14<03:20,  2.33it/s]  7%|▋         | 35/500 [00:14<03:18,  2.34it/s]  7%|▋         | 36/500 [00:15<03:17,  2.36it/s]  7%|▋         | 37/500 [00:15<03:16,  2.36it/s]  8%|▊         | 38/500 [00:16<03:15,  2.36it/s]  8%|▊         | 39/500 [00:16<03:14,  2.37it/s]  8%|▊         | 40/500 [00:17<03:16,  2.35it/s]  8%|▊         | 41/500 [00:17<03:13,  2.37it/s]  8%|▊         | 42/500 [00:17<03:13,  2.37it/s]  9%|▊         | 43/500 [00:18<03:04,  2.48it/s]  9%|▉         | 44/500 [00:18<03:09,  2.40it/s]  9%|▉         | 45/500 [00:19<03:10,  2.39it/s]  9%|▉         | 46/500 [00:19<03:09,  2.40it/s]  9%|▉         | 47/500 [00:19<03:08,  2.41it/s] 10%|▉         | 48/500 [00:20<03:10,  2.37it/s] 10%|▉         | 49/500 [00:20<03:10,  2.36it/s] 10%|█         | 50/500 [00:21<03:09,  2.37it/s] 10%|█         | 51/500 [00:21<03:08,  2.39it/s] 10%|█         | 52/500 [00:22<03:09,  2.37it/s] 11%|█         | 53/500 [00:22<03:11,  2.33it/s] 11%|█         | 54/500 [00:22<03:14,  2.30it/s] 11%|█         | 55/500 [00:23<03:12,  2.32it/s] 11%|█         | 56/500 [00:23<03:10,  2.34it/s] 11%|█▏        | 57/500 [00:24<03:11,  2.32it/s] 12%|█▏        | 58/500 [00:24<03:09,  2.34it/s] 12%|█▏        | 59/500 [00:25<03:09,  2.33it/s] 12%|█▏        | 60/500 [00:25<03:08,  2.33it/s] 12%|█▏        | 61/500 [00:25<03:04,  2.38it/s] 12%|█▏        | 62/500 [00:26<03:10,  2.30it/s] 13%|█▎        | 63/500 [00:26<03:07,  2.33it/s] 13%|█▎        | 64/500 [00:27<03:05,  2.35it/s] 13%|█▎        | 65/500 [00:27<03:05,  2.35it/s] 13%|█▎        | 66/500 [00:28<03:07,  2.31it/s] 13%|█▎        | 67/500 [00:28<03:05,  2.33it/s] 14%|█▎        | 68/500 [00:28<03:03,  2.36it/s] 14%|█▍        | 69/500 [00:29<02:53,  2.48it/s] 14%|█▍        | 70/500 [00:29<02:46,  2.58it/s]

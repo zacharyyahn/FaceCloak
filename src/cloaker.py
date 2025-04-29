@@ -12,13 +12,16 @@ from facedataset import FaceDataset
 from torch.utils.data import DataLoader
 import random
 import time
+from math import sqrt, log10
 from torchvision import transforms as trans
+from cloak_functions import pgd_cloak
+from skimage.metrics import structural_similarity
 
 # NOTE: Fawkes used a different model/dataset, and they also did some tanh normalization on the images. See differentiator file in the repo or the paper. They also did not clip images.
 
 
 class Cloaker():
-    def __init__(self, dataset_path, extractor, cropper, batch_size, cropped_im_size, target_pool_size, num_dataset_images, device, verbosity):
+    def __init__(self, dataset_path, extractor, cropper, batch_size, cropped_im_size, target_pool_size, num_dataset_images, device, verbosity, distance_function, cloak_function, cloak_loss, cloak_function_iters, cloak_function_step, cloak_function_max_pert, cloak_function_lr, loss_func_select, norm_function, reverse_norm_function):
         self.dataset = FaceDataset(dataset_path, num_images=num_dataset_images)
         self.paths = []
         self.face_loader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
@@ -30,8 +33,22 @@ class Cloaker():
         self.device = device
         self.cropped_im_size = cropped_im_size
         self.target_pool_size = target_pool_size
-        self.tanh_constant = 2 - 1e-6
         self.verbosity = verbosity
+        self.distance_function = distance_function
+        self.cloak_function = cloak_function
+        self.cloak_loss = cloak_loss
+        self.loss_func_select = loss_func_select
+        self.norm_function = norm_function
+        self.reverse_norm_function = reverse_norm_function
+
+        self.cloak_func_args = {
+                "iters":cloak_function_iters,
+                "step":cloak_function_step,
+                "max_pert":cloak_function_max_pert,
+                "lr":cloak_function_lr,
+                "dist_func":distance_function,
+                "loss_func_select":loss_func_select
+        }
     
         # Define transforms for normalizing images. Can change them on a per-dataset basis
         mean = torch.Tensor([0.485, 0.456, 0.406])
@@ -68,17 +85,6 @@ class Cloaker():
             im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
             self.images[path] = im
 
-    def preprocess_tanh(self, im):
-        im /= 255.0
-        im -= 0.5
-        im *= self.tanh_constant
-        im = torch.tanh(im)
-        return im
-
-    def reverse_tanh(self, im):
-        im = (np.arctanh(im) / self.tanh_constant + 0.5) * 255.0
-        return im
-
     # Get the embeddings of just one image
     def get_one_embed(self, path):
         try:
@@ -86,12 +92,13 @@ class Cloaker():
             #print("Found premade embed for", path)
             return embed
         except Exception as e:
-            if self.verbosity == "error": print("Error:", e, "did not find embedding for", path)
+            if self.verbosity == "log": print("Did not find embedding for", path)
 
             # Read in the image and get the boxes from MTCNN
             im = cv2.imread(path)
             im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
             im = torch.Tensor(im).to(self.device)
+        
             with torch.no_grad():
                 boxes, _ = self.cropper.detect(im)
             im = im.cpu().detach().numpy()
@@ -121,7 +128,7 @@ class Cloaker():
             ymax = int(boxes[0][3])
 
             # Crop the area with the bounding box
-            crop = im[ymin:ymax, xmin:xmax, :]
+            crop = im[ymin:ymax, xmin:xmax, :].copy()
 
             # Resize to be 112x112
             try:
@@ -134,12 +141,7 @@ class Cloaker():
                 return None
 
             # Apply the normalization transform
-            #print("Before transform, crop has range", torch.min(crop), torch.max(crop))
-            #crop /= 255.0
-            #crop = self.norm_transform(crop)
-            #crop -= 0.5
-            #crop = torch.tanh(crop)
-            crop = self.preprocess_tanh(crop)
+            crop = self.norm_function(crop)
             #print("After transform, crop has range", torch.min(crop), torch.max(crop))
 
             # Add fake batching to work with mozuma
@@ -159,82 +161,62 @@ class Cloaker():
 
             return embed
         
+    # Get the maximally similar image in a pool
+    def get_closest(self, path, pool_size=100):
+        start = time.perf_counter()
+        try:
+            this_embed = self.get_one_embed(path)
+            # Check if the embedding is None
+            try:
+                if this_embed == None:
+                    if self.verbosity == "error": 
+                        print("Cannot find target for path", path)
+                        return None
+            except Exception as e:
+                if self.verbosity == "error": print("Error 1 in get_target:", e)
+        except Exception as e:
+            if self.verbosity == "error": print("Error 2 in get_target:", e)
+            return None
 
-    # Get the embeddings of every img in the dataset by first cropping with MTCNN and then running through an extractor
-    def get_embeds(self):
-        num = 0
-        for im, label in tqdm(self.face_loader):
-            num += 1
-            if num > 150:
-                break
-            print("Size of self.paths:", sys.getsizeof(self.paths))
-            print("Size of embeds:", sys.getsizeof(self.embeds))
-            print("Size of crops:", sys.getsizeof(self.cropped_images))
-            im = im.squeeze()
-            label = str(label[0])
-            #print("Looking at label", label, "for im of size", im.size())
-            im = torch.Tensor(im).to(self.device)
-            with torch.no_grad():
-                boxes, _ = self.cropper.detect(im)
-            im = im.cpu().detach().numpy()
+        # Get the name of the person we're looking at
+        path_name = os.path.basename(path)[:os.path.basename(path).find("_")]
+        best_dist = 10000000
+        best_target = None
+
+        # Repeat for the number of images in the pool
+        while pool_size > 0:
+
+            # Get a random index
+            idx = random.randint(0, len(self.paths)-1)
+            tgt = self.paths[idx]
+
+            # Get the name for this target
+            name = os.path.basename(tgt)[:os.path.basename(tgt).find("_")]
+
+            tgt_embed = self.get_one_embed(tgt)
 
             try:
-                if not boxes:
-                    print("ERROR: Boxes are None")
-                    self.paths.remove(label)
+                if tgt_embed == None:
+                    if self.verbosity == "error": print("Cannot find target embedding")
                     continue
-            except:
-                None
-            if len(boxes) != 1:
-                print("ERROR: Boxes are", boxes)
-                self.paths.remove(label)
+            except Exception as e:
+                if self.verbosity == "error": print("Error 3 in get_target:", e)
+
+            if torch.max(tgt_embed) == 0: # make sure we aren't working towards a null embedding
                 continue
+            pool_size -= 1
+            sim = self.distance_function(tgt_embed, this_embed)
+            # If this one is even farther away, then save it and continue
+            if sim < best_dist:
+                best_dist = sim
+                best_target = tgt
+        if self.verbosity == "log": print("Target for", path, "is", best_target)
+        end = time.perf_counter()
+        if self.verbosity == "log": print(f"Finding target took %0.4f seconds" % (end - start))
+        return best_target
 
-            #print("Boxes are", boxes)
-            self.boxes[label] = boxes[0]
-
-            xmin = int(boxes[0][0])
-            ymin = int(boxes[0][1])
-            xmax = int(boxes[0][2])
-            ymax = int(boxes[0][3])
-
-            # Crop the area with the bounding box
-            crop = im[ymin:ymax, xmin:xmax, :]
-            #print("crop has shape", crop.size())
-
-            # Resize to be 112x112
-            try:
-                crop = torch.Tensor(cv2.resize(crop.detach().cpu().numpy(), (self.cropped_im_size, self.cropped_im_size), interpolation=cv2.INTER_CUBIC))
-                crop = torch.permute(crop, (2, 0, 1))
-            except:
-                print("Empty crop on boxes", boxes)
-                self.paths.remove(label)
-                continue
-            
-            # Apply the normalization transform
-            #print("Before transform, crop has range", torch.min(crop), torch.max(crop))
-            crop /= 255.0
-            crop = self.norm_transform(crop)
-            #print("After transform, crop has range", torch.min(crop), torch.max(crop))
-
-            # Add fake batching to work with mozuma
-            crop = crop.repeat((2, 1, 1, 1))
-            self.cropped_images[label] = crop
-            
-            # Get the embeddings and save them
-            with torch.no_grad():
-                embeds = self.extractor(crop)
-            #print("Finaly embed has shape", embeds.size())
-            self.embeds[label] = embeds
-        
-        print("Finished embedding")
-
-    # Calculate the L2 distance of two vectors
-    def L2_dist(self, embed1, embed2):
-        return torch.linalg.norm(embed1 - embed2, ord=2)
-
-    # Get the target image according to Fawkes method by finding the maximally different image in a pool
-    def get_target(self, path, pool_size=100):
+    # Get maximally different image from the pool
+    def get_farthest(self, path, pool_size=100):
         start = time.perf_counter()
         try:
             this_embed = self.get_one_embed(path)
@@ -281,7 +263,7 @@ class Cloaker():
                 if torch.max(tgt_embed) == 0: # make sure we aren't working towards a null embedding
                     continue
                 pool_size -= 1
-                sim = self.L2_dist(tgt_embed, this_embed)
+                sim = self.distance_function(tgt_embed, this_embed)
                 # If this one is even farther away, then save it and continue
                 if sim > best_dist:
                     best_dist = sim
@@ -290,19 +272,22 @@ class Cloaker():
         end = time.perf_counter()
         if self.verbosity == "log": print(f"Finding target took %0.4f seconds" % (end - start))
         return best_target
-
-    def weak_triplet_loss(self, embed_img, embed_tgt, embed_orig, factor):
-        return torch.linalg.norm(embed_img - embed_tgt, ord=2)# + factor * torch.linalg.norm(embed_img - embed_orig, ord=2)
     
     # Cloak a single image by making its feature space embedding more similar to another maximally different target image's embedding. Use 1000 iterations of Adam with a maximum perturbation budget (different from Fawkes)
-    def cloak_image(self, img_path, pool_size=100, iters=100, lr=1e-2, pert_budget=8./255., step=1./255.):
+    def cloak_image(self, img_path, pool_size=100):
         
         # Find the maximally different image
-        tgt_path = self.get_target(img_path, pool_size=pool_size)
+        tgt_path = self.get_farthest(img_path, pool_size=pool_size)
 
         if tgt_path == None:
             if self.verbosity == "error": print("No target for image (may cause error on line below)", img_path)
             return np.zeros((self.cropped_im_size, self.cropped_im_size, 3))
+        
+        # If we're doing triplet loss, also calculate closest
+        if self.loss_func_select == "triplet":
+            closest_path = self.get_closest(img_path, pool_size=pool_size)
+            closest_emb = self.embeds[closest_path].clone()
+            self.cloak_func_args["closest_emb"] = closest_emb
 
         # Retrieve the pre-computed target embedding
         tgt_emb = self.embeds[tgt_path].clone()
@@ -315,67 +300,9 @@ class Cloaker():
         with torch.no_grad():
             orig_embed = self.extractor(cropped).detach()
             tgt_emb = tgt_emb.detach()
-
-        # Copy and save the original to measure modification
-        orig_cropped = cropped.detach().clone()
-
-        # Record the original dimensions of cropped
-        orig_min = torch.min(cropped)
-        orig_max = torch.max(cropped)
-        #print("orig_min and orig_max are", orig_min, orig_max)
-
-        # Adjust the perturbation budget and step size
-        #pert_budget = pert_budget * (orig_max - orig_min)
-        #step = step * (orig_max - orig_min)
-
-        # Make sure cropped will receive gradients as a fresh leaf tensor
-        cropped = cropped.detach().clone()
-        cropped.requires_grad = True
-
-        #cropped = cropped.to(self.device)
         
-        # Iterate for iters iterations
-        pbar = tqdm(range(iters))
-        for i in pbar:
-            cropped = cropped.clone().detach().requires_grad_()
-            #cropped.requires_grad = True
-            out_emb = self.extractor(cropped)
-            loss = self.weak_triplet_loss(out_emb, tgt_emb, orig_embed, factor=0.3)
-            loss.backward(retain_graph=False)
-            pbar.set_postfix({'loss': loss.item()})
-            #print("Loss is", loss.item())     
-            
-            # Get the sign of the gradient
-            signed_grad = torch.sign(cropped.grad)
-            
-            with torch.no_grad():
-                # Update cropped
-                cropped -= step * signed_grad
-
-                # Clip the perturbation to be within the viable range
-                pert = torch.clip(cropped - orig_cropped, min=-pert_budget, max=pert_budget)
-
-                # Add the perturbation back, but make sure we're within [-1, 1]
-                cropped = torch.clip(orig_cropped + pert, min=-1.0, max=1.0)
-
-            #cropped = cropped.cpu().detach().clone()
-            #print(torch.cuda.memory_allocated() / 1e6, "MB allocated")
-            #print("Cropped wants grad:", cropped.requires_grad, cropped.device)
-            #print("Tgt:", tgt_emb.device, tgt_emb.requires_grad)
-            #print("orig_embed:", orig_embed.device, orig_embed.requires_grad)
-       
-            del loss, out_emb
-            cropped.grad = None
-        #cropped = cropped.detach().clone()
-            torch.cuda.empty_cache()
-        
-        cropped = cropped.detach()
-        torch.cuda.empty_cache()
-
-        diff = torch.clip(cropped - orig_cropped, min=-pert_budget, max=pert_budget)
-        #print("Here max diff is", torch.max(diff))
-        cropped = torch.clip(orig_cropped + diff, min=orig_min, max=orig_max)
-        cropped = cropped[0]
+        # Call our cloaking method to obsure this image
+        cropped = self.cloak_function(cropped, tgt_emb, self.extractor, self.cloak_loss, self.device, self.cloak_func_args)
 
         # Now that we have the cloaked cropped portion, it's time to fit that back into the image
         # Un-normalize to get back to image space
@@ -385,7 +312,7 @@ class Cloaker():
         cropped = cropped.squeeze().detach().cpu().numpy()
         if self.verbosity == "log": print("Pre reverse_tanh range is", np.min(cropped), np.max(cropped))
         #cropped = 255. * cropped
-        cropped = self.reverse_tanh(cropped)
+        cropped = self.reverse_norm_function(cropped)
         if self.verbosity == "log": print("Post reverse_tanh range is", np.min(cropped), np.max(cropped))
         cropped = np.transpose(cropped, (1, 2, 0)) # set channel last
 
@@ -395,21 +322,32 @@ class Cloaker():
         ymin = int(boxes[1])
         xmax = int(boxes[2])
         ymax = int(boxes[3])
+        
+        # HERE DOES NOT HAVE ARTIFACTS
         cropped = cv2.resize(cropped, (xmax - xmin, ymax - ymin), interpolation=cv2.INTER_CUBIC)
+       
+
+        # HERE DOES NOT HAVE ARTIFACTS
+
 
         # Retrieve the image and add the patch
         im = self.images[img_path]
+        im = im.copy()
 
         # Convert to int to match with image int
-        cropped = cropped.astype(type(im))
+        cropped = np.clip(cropped, 0, 255)
+        cropped_clean = np.ascontiguousarray(cropped.astype(np.uint8, copy=False))
+        #im = im.astype(np.uint8, copy=False)
 
-        #print("after retrieval im has range", np.min(im), np.max(im))
         try:
             im[ymin:ymax, xmin:xmax, :] = cropped
         except Exception as e:
             if self.verbosity == "error": print("Error", e, "while cropping for boxes", boxes, "cropped shape", cropped.shape, "image shape", im.shape)
-        im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            return None
         
+        #diff_mask = (im[ymin:ymax, xmin:xmax, :] != cropped)
+        im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+
         # Save the image for reference later
         # self.cloaked_images[img_path] = im
 
@@ -417,18 +355,49 @@ class Cloaker():
 
     # Cloak all images in the dataset
     def cloak_all(self, num_images=100, save_dir=None):
-
+        
+        total_ssim = 0.0
+        total_psnr = 0.0
+        total_mse = 0.0
+        
         # Iterate through each item in the dataset
         num = 0
         for path in self.paths:
             num += 1
             if num > num_images:
+                print(f"Average SSIM %0.4f" % (total_ssim / num))
+                print(f"Average PSNR %0.4f" % (total_psnr / num))
+                print(f"Average MSE %0.4f" % (total_mse / num))
                 return
             if self.verbosity == "log": print("Cloaking image", path)
 
             # Cloak the image
+            orig_im = self.images[path].copy()
             im = self.cloak_image(path, pool_size=self.target_pool_size)
             
+            # Check for a none image
+            try:
+                if im == None:
+                    continue
+            except:
+                None
+            
+            
+            # NOTE: Sometimes these images have different dimensions...?
+            # Double check that it's the right size
+            im = np.clip(im, a_min=0, a_max=255)
+
+            # Calculate PSNR, SSIM, and MSE
+            try:
+                total_ssim += structural_similarity(orig_im, im, channel_axis=2)
+                mse = np.mean(np.square((orig_im - im)))
+                total_mse += mse
+                total_psnr += 20.0 * log10(255.0 / sqrt(mse))
+            except:
+                if self.verbosity == "error": print("ERROR in calculating metrics")
+                None
+            
+            if self.verbosity == "log": print("Right before writing, range is", np.min(im), np.max(im))
             # If we couldn't find a target for the previous image, just skip
             if np.max(im) == 0:
                 continue
@@ -437,7 +406,11 @@ class Cloaker():
             #print("Before saving my range is", np.min(im), np.max(im))
             if save_dir is not None:
                 if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
-                cv2.imwrite(save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".png", im)
+                cv2.imwrite(save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg", im)
+        
+        print(f"Average SSIM %0.4f" % (total_ssim / num))
+        print(f"Average PSNR %0.4f" % (total_psnr / num))
+        print(f"Average MSE %0.4f" % (total_mse / num))
 
     def apply_defense(self):
         None
