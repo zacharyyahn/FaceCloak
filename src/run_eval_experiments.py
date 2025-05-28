@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-paths = [path for path in os.listdir("data/") if path.find("Facenet") != -1]
+paths = [path for path in os.listdir("data/") if path.find("facescrub") != -1]
 
 for path in paths:
    output_file = "output/evaluate_"+path+".out"

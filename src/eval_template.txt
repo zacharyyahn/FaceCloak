@@ -15,4 +15,4 @@ DATASET_FILE="data/pubfig_flat/"
 CLOAK_FILE="CLOAKED_DATASET_FILE/"
 
 
-python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 500 --dataset_size 1.0 --gallery_size 5 10 15 20 25 50 75 100 150 200 300 400 500 1000 2000 5000 10000 --cropped_im_size 112 --verbosity "none" --models "Facenet" --distance_function "l2"
+python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 500 --dataset_size 1.0 --gallery_size 10000 --cropped_im_size 112 --verbosity "none" --models "Facenet" --distance_function "l2"

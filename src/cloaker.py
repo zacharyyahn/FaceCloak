@@ -21,7 +21,7 @@ from skimage.metrics import structural_similarity
 
 
 class Cloaker():
-    def __init__(self, dataset_path, extractor, cropper, batch_size, cropped_im_size, target_pool_size, num_dataset_images, device, verbosity, distance_function, cloak_function, cloak_loss, cloak_function_iters, cloak_function_step, cloak_function_max_pert, cloak_function_lr, loss_func_select, norm_function, reverse_norm_function):
+    def __init__(self, dataset_path, extractor, cropper, batch_size, cropped_im_size, target_pool_size, num_dataset_images, device, verbosity, distance_function, cloak_function, cloak_loss, cloak_function_iters, cloak_function_step, cloak_function_max_pert, cloak_function_lr, loss_func_select, norm_function, reverse_norm_function, percep_loss, percep_loss_weight):
         self.dataset = FaceDataset(dataset_path, num_images=num_dataset_images)
         self.paths = []
         self.face_loader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
@@ -47,7 +47,9 @@ class Cloaker():
                 "max_pert":cloak_function_max_pert,
                 "lr":cloak_function_lr,
                 "dist_func":distance_function,
-                "loss_func_select":loss_func_select
+                "percep_loss":percep_loss,
+                "loss_func_select":loss_func_select,
+                "percep_loss_weight":percep_loss_weight
         }
     
         # Define transforms for normalizing images. Can change them on a per-dataset basis
@@ -80,10 +82,14 @@ class Cloaker():
         
         # Read in all of the images
         self.paths = self.dataset.paths
+        random.shuffle(self.paths)
         for path in self.paths:
-            im = cv2.imread(path)
-            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-            self.images[path] = im
+            try:
+                im = cv2.imread(path)
+                im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+                self.images[path] = im
+            except Exception as e:
+                if self.verbosity == "error": print("ERROR reading in images:", e)
 
     # Get the embeddings of just one image
     def get_one_embed(self, path):
@@ -273,6 +279,41 @@ class Cloaker():
         if self.verbosity == "log": print(f"Finding target took %0.4f seconds" % (end - start))
         return best_target
     
+    # Insert the cropped portion back into the image, resizing as necessary 
+    def reconstruct_image(self, img_path, cropped):
+        cropped = cropped[0]
+        cropped = cropped.squeeze().detach().cpu().numpy()
+        if self.verbosity == "log": print("Pre reverse_tanh range is", np.min(cropped), np.max(cropped))
+        #cropped = 255. * cropped
+        cropped = self.reverse_norm_function(cropped)
+        if self.verbosity == "log": print("Post reverse_tanh range is", np.min(cropped), np.max(cropped))
+        cropped = np.transpose(cropped, (1, 2, 0)) # set channel last
+
+        # Re-arrange axes to fit with the original image
+        boxes = self.boxes[img_path]
+        xmin = int(boxes[0])
+        ymin = int(boxes[1])
+        xmax = int(boxes[2])
+        ymax = int(boxes[3])
+
+        cropped = cv2.resize(cropped, (xmax - xmin, ymax - ymin), interpolation=cv2.INTER_CUBIC)
+
+        # Retrieve the image and add the patch
+        im = self.images[img_path]
+        im = im.copy()
+
+        # Convert to int to match with image int
+        cropped = np.clip(cropped, 0, 255)
+        cropped_clean = np.ascontiguousarray(cropped.astype(np.uint8, copy=False))
+        #im = im.astype(np.uint8, copy=False)
+
+        try:
+            im[ymin:ymax, xmin:xmax, :] = cropped
+        except Exception as e:
+            if self.verbosity == "error": print("Error", e, "while cropping for boxes", boxes, "cropped shape", cropped.shape, "image shape", im.shape)
+            return None
+        return im
+
     # Cloak a single image by making its feature space embedding more similar to another maximally different target image's embedding. Use 1000 iterations of Adam with a maximum perturbation budget (different from Fawkes)
     def cloak_image(self, img_path, pool_size=100):
         
@@ -289,6 +330,11 @@ class Cloaker():
             closest_emb = self.embeds[closest_path].clone()
             self.cloak_func_args["closest_emb"] = closest_emb
 
+        # Make these things available to the cloak function
+        self.cloak_func_args["reconstruct_func"] = self.reconstruct_image
+        self.cloak_func_args["image_path"] = img_path
+        self.cloak_func_args["image"] = self.images[img_path]
+        
         # Retrieve the pre-computed target embedding
         tgt_emb = self.embeds[tgt_path].clone()
         
@@ -305,47 +351,16 @@ class Cloaker():
         cropped = self.cloak_function(cropped, tgt_emb, self.extractor, self.cloak_loss, self.device, self.cloak_func_args)
 
         # Now that we have the cloaked cropped portion, it's time to fit that back into the image
-        # Un-normalize to get back to image space
-        #cropped = self.inv_transform(cropped)
 
         # Return to numpy array
-        cropped = cropped.squeeze().detach().cpu().numpy()
-        if self.verbosity == "log": print("Pre reverse_tanh range is", np.min(cropped), np.max(cropped))
-        #cropped = 255. * cropped
-        cropped = self.reverse_norm_function(cropped)
-        if self.verbosity == "log": print("Post reverse_tanh range is", np.min(cropped), np.max(cropped))
-        cropped = np.transpose(cropped, (1, 2, 0)) # set channel last
-
-        # Re-arrange axes to fit with the original image
-        boxes = self.boxes[img_path]
-        xmin = int(boxes[0])
-        ymin = int(boxes[1])
-        xmax = int(boxes[2])
-        ymax = int(boxes[3])
+        im = self.reconstruct_image(img_path, cropped)
         
-        # HERE DOES NOT HAVE ARTIFACTS
-        cropped = cv2.resize(cropped, (xmax - xmin, ymax - ymin), interpolation=cv2.INTER_CUBIC)
-       
-
-        # HERE DOES NOT HAVE ARTIFACTS
-
-
-        # Retrieve the image and add the patch
-        im = self.images[img_path]
-        im = im.copy()
-
-        # Convert to int to match with image int
-        cropped = np.clip(cropped, 0, 255)
-        cropped_clean = np.ascontiguousarray(cropped.astype(np.uint8, copy=False))
-        #im = im.astype(np.uint8, copy=False)
-
         try:
-            im[ymin:ymax, xmin:xmax, :] = cropped
-        except Exception as e:
-            if self.verbosity == "error": print("Error", e, "while cropping for boxes", boxes, "cropped shape", cropped.shape, "image shape", im.shape)
-            return None
-        
-        #diff_mask = (im[ymin:ymax, xmin:xmax, :] != cropped)
+            if im == None:
+                return None
+        except:
+            None
+
         im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
 
         # Save the image for reference later

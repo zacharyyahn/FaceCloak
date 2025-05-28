@@ -6,8 +6,6 @@ import cv2
 class FaceDataset(Dataset):
     def __init__(self, dataset_path, transforms = None, num_images=1.0):
         self.paths = []
-        self.transforms = transforms
-        self.tanh_constant = 2 - 1e-6
         for path in os.listdir(dataset_path):
             self.paths.append(dataset_path + "/" + path)
         if num_images != 1.0:

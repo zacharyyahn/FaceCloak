@@ -3,12 +3,12 @@ import sys
 import subprocess
 
 distances = ["l2", "cosine"]
-optimizers = ["sgd_cloak", "pgd_cloak"]
+optimizers = ["sgd_cloak", "pgd_cloak", "afog_cloak"]
 losses = ["fawkes","triplet"]
 iterations = ["10", "100"]
 models = ["Facenet"]
 
-prefix = "cloak_pubfig"
+prefix = "cloak_facescrub"
 
 for d in distances:
     for o in optimizers:
@@ -24,7 +24,7 @@ for d in distances:
                     template = template.replace("LOSS_TYPE",l)
                     template = template.replace("NUM_ITERATIONS",i)
                     template = template.replace("EXTRACTOR_TYPE",m)
-                    template = template.replace("SAVE_PATH","data/" + save_line)
+                    template = template.replace("SAVE_PATH","data/cloak/" + save_line)
                     template = template.replace("OUTPUT_PATH", "output/" + save_line + ".out")
                     f.write(template)
                     f.close()

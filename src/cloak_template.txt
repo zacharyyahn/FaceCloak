@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -JFaceCloak
-#SBATCH -N1 --gres=gpu:1 --ntasks-per-node=4 --mem-per-gpu=80G
+#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G
 #SBATCH -n4 -t16:00:00
 #SBATCH -oOUTPUT_PATH
 
@@ -28,7 +28,7 @@ echo $CONDA_PREFIX
 # num_cloaked_images: int number of images to cloak
 # num_dataset_images: float fraction of dataset to include in calculations
 
-python src/cloak.py --dataset_path "data/pubfig_flat" \
+python src/cloak.py --dataset_path "data/lfw_flat" \
         --batch_size 1 \
         --target_pool_size 500 \
         --cropped_im_size 112 \
@@ -40,6 +40,8 @@ python src/cloak.py --dataset_path "data/pubfig_flat" \
         --distance_function "DISTANCE" \
         --cloak_function "OPTIMIZER" \
         --cloak_loss "LOSS_TYPE" \
+	--cloak_percep_loss "none" \
+        --percep_loss_weight 0.3 \
         --cloak_function_iters NUM_ITERATIONS \
         --cloak_function_step 0.00784 \
         --cloak_function_max_pert 0.0627 \

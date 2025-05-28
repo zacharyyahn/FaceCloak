@@ -23,7 +23,14 @@ class Evaluator:
         self.embed_map = {model: {} for model in self.models} # save an embedding map for each model
         
         self.preprocessors = {
-                "ArcFace":preprocess_tanh,
+                "ArcFaceR18":preprocess_tanh,
+                "ArcFaceR34":preprocess_tanh,
+                "ArcFaceR50":preprocess_tanh,
+                "ArcFaceR100":preprocess_tanh,
+                "CosFaceR18":preprocess_tanh,
+                "CosFaceR34":preprocess_tanh,
+                "CosFaceR50":preprocess_tanh,
+                "CosFaceR100":preprocess_tanh,
                 "Facenet":preprocess_tanh
                 }
 
@@ -33,11 +40,11 @@ class Evaluator:
         
         random.shuffle(self.paths)
         self.paths = self.paths[:int(dataset_size * len(self.paths))]
-        print("Finished reading in", len(self.paths), "dataset paths")
+        print("Finished reading in", len(self.paths), "gallery paths from", dataset_path)
 
         for path in os.listdir(probe_path):
             self.probe_paths.append(probe_path + path)
-        print("Finished reading in", len(self.probe_paths), "paths")
+        print("Finished reading in", len(self.probe_paths), "probe paths from", probe_path)
 
         #self.paths = self.paths[:50]
         #self.cloaked_paths = self.cloaked_paths[:10]
@@ -56,7 +63,12 @@ class Evaluator:
 
                 # Read in the image and get the boxes from MTCNN
                 im = cv2.imread(path)
-                im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+                try:
+                    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+                except Exception as e:
+                    if self.verbosity == "error": print("ERROR in compute_single_embedding:", e)           
+                    emb[model] = None
+                    continue
                 im = torch.Tensor(im).to(self.device)
 
                 with torch.no_grad():
@@ -121,7 +133,7 @@ class Evaluator:
         return emb
 
 
-    # Find the top-k most similar images to a given image. Currently only works for k=1
+    # Find the top-k most similar images to a given image. #Randomly selects gallery images from the dataset. Currently only works for k=1
     def find_most_similar_by_embed(self, path, gallery_size=100, k=1):
         similars = {}
         for model in self.models.keys():
@@ -246,6 +258,9 @@ class Evaluator:
                     totals[model] += 1
 
         # Print the accuracy
+        outs = {}
         for model in totals:
             print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(itr)))
+            outs[model] = totals[model] / float(itr)
+        return outs
 
