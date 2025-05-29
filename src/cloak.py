@@ -33,6 +33,8 @@ parser.add_argument("--cloak_function_max_pert", type=float, default=1./255, hel
 parser.add_argument("--cloak_function_lr", type=float, default=0.5, help="Learning rate for optimization methods with learning rates")
 parser.add_argument("--cloak_percep_loss", type=str, default="none", help="Perceptual loss to use in loss calculation. If none, only clipping will be used")
 parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighted factor for adding perceptual loss to cloak loss")
+parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode or makeup mode")
+parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either DiffAM, clip2protect, or AMT-GAN")
 args = parser.parse_args()
 
 #assert args.num_dataset_images > args.num_cloaked_images
@@ -150,4 +152,7 @@ cloaker = Cloaker(
         )
 
 # Cloak images according to args
-cloaker.cloak_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images)
+if args.mode == "perturb":
+        cloaker.cloak_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images)
+else:
+     cloaker.makeup_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, makeup_mode=args.makeup_mode)

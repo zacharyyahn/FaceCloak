@@ -7,6 +7,10 @@ data/*
 model_checkpoints/*
 autoscripts/*
 output/*
+*/src/DiffAM/assets/*
+*/src/DiffAM/checkpoint/*
+*/src/DiffAM/pretrained/*
+*/src/DiffAM/datasets/*
 
 # C extensions
 *.so

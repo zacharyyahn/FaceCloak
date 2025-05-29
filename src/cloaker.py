@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
+import yaml
 from facedataset import FaceDataset
 from torch.utils.data import DataLoader
 import random
@@ -15,6 +16,7 @@ import time
 from math import sqrt, log10
 from torchvision import transforms as trans
 from cloak_functions import pgd_cloak
+from DiffAM.cloak_utils import get_diffam_config, get_diffam_model, diffam_makeup
 from skimage.metrics import structural_similarity
 
 # NOTE: Fawkes used a different model/dataset, and they also did some tanh normalization on the images. See differentiator file in the repo or the paper. They also did not clip images.
@@ -426,6 +428,71 @@ class Cloaker():
         print(f"Average SSIM %0.4f" % (total_ssim / num))
         print(f"Average PSNR %0.4f" % (total_psnr / num))
         print(f"Average MSE %0.4f" % (total_mse / num))
+
+    def makeup_all(self, num_images=100, save_dir=None, makeup_mode="DiffAM"):
+        total_ssim = 0.0
+        total_psnr = 0.0
+        total_mse = 0.0
+
+        mode_to_func = {
+            "DiffAM": diffam_makeup
+        }
+
+        if makeup_mode == "DiffAM":
+            config = get_diffam_config()
+            model = get_diffam_model(config, self.device)
+
+        # Iterate through each item in the dataset
+        num = 0
+        for path in self.paths:
+            num += 1
+            if num > num_images:
+                print(f"Average SSIM %0.4f" % (total_ssim / num))
+                print(f"Average PSNR %0.4f" % (total_psnr / num))
+                print(f"Average MSE %0.4f" % (total_mse / num))
+                return
+            if self.verbosity == "log": print("Cloaking image", path)
+
+            # Cloak the image
+            orig_im = self.images[path].copy()
+            im = mode_to_func[makeup_mode](path=path, model=model, config=config, device=self.device)
+            
+            # Check for a none image
+            try:
+                if im == None:
+                    continue
+            except:
+                None
+            
+            # NOTE: Sometimes these images have different dimensions...?
+            # Double check that it's the right size
+            im = np.clip(im, a_min=0, a_max=255)
+
+            # Calculate PSNR, SSIM, and MSE
+            try:
+                total_ssim += structural_similarity(orig_im, im, channel_axis=2)
+                mse = np.mean(np.square((orig_im - im)))
+                total_mse += mse
+                total_psnr += 20.0 * log10(255.0 / sqrt(mse))
+            except:
+                if self.verbosity == "error": print("ERROR in calculating metrics")
+                None
+            
+            if self.verbosity == "log": print("Right before writing, range is", np.min(im), np.max(im))
+            # If we couldn't find a target for the previous image, just skip
+            if np.max(im) == 0:
+                continue
+
+            #print("Before saving im have shape", im.shape)
+            #print("Before saving my range is", np.min(im), np.max(im))
+            if save_dir is not None:
+                if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
+                cv2.imwrite(save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg", im)
+        
+        print(f"Average SSIM %0.4f" % (total_ssim / num))
+        print(f"Average PSNR %0.4f" % (total_psnr / num))
+        print(f"Average MSE %0.4f" % (total_mse / num))
+
 
     def apply_defense(self):
         None

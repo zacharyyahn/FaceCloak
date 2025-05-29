@@ -2,7 +2,7 @@
 #SBATCH -JFaceCloak
 #SBATCH -N1 --gres=gpu:H100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
 #SBATCH -n4 -t16:00:00
-#SBATCH -ooutput/test_cloak_facescrub.out
+#SBATCH -ooutput/test_diffam.out
 
 module load anaconda3
 conda init
@@ -47,4 +47,6 @@ python src/cloak.py --dataset_path "data/facescrub_small_flat" \
 	--cloak_function_step 0.00784 \
 	--cloak_function_max_pert 0.0627 \
 	--cloak_function_lr 0.5 \
-	--verbosity "none"
+	--verbosity "none" \
+	--mode "makeup" \
+	--makeup_mode "DiffAM" \
