@@ -16,7 +16,9 @@ import time
 from math import sqrt, log10
 from torchvision import transforms as trans
 from cloak_functions import pgd_cloak
-from DiffAM.cloak_utils import get_diffam_config, get_diffam_model, diffam_makeup
+from DiffAM.main import dict2namespace
+from makeup_functions import diffam_makeup
+from DiffAM.models.ddpm.diffusion import DDPM
 from skimage.metrics import structural_similarity
 
 # NOTE: Fawkes used a different model/dataset, and they also did some tanh normalization on the images. See differentiator file in the repo or the paper. They also did not clip images.
@@ -429,6 +431,7 @@ class Cloaker():
         print(f"Average PSNR %0.4f" % (total_psnr / num))
         print(f"Average MSE %0.4f" % (total_mse / num))
 
+    # Apply makeup to all of the images in the dataset
     def makeup_all(self, num_images=100, save_dir=None, makeup_mode="DiffAM"):
         total_ssim = 0.0
         total_psnr = 0.0
@@ -438,9 +441,20 @@ class Cloaker():
             "DiffAM": diffam_makeup
         }
 
+        # If we want to use the DiffAM method, prepare to call that code
         if makeup_mode == "DiffAM":
-            config = get_diffam_config()
-            model = get_diffam_model(config, self.device)
+            with open("DiffAM/configs/MT.yml", 'r') as f:
+                config = yaml.safe_load(f)
+            config = dict2namespace(config)
+            model_path = "DiffAM/checkpoint/test_MT_CelebA_HQ_XMY-060_t60_ninv20_ngen6_dis1_dir0.3_lr8e-06_XMY-060-3.pth"
+            model = DDPM(config)
+            ckpt = torch.load(model_path)
+            learn_sigma = False
+            model.load_state_dict(ckpt)
+            model.to(self.device)
+            model = torch.nn.DataParallel(model)
+            model.eval()
+            print(f"{model_path} is loaded for makeup transfer.")
 
         # Iterate through each item in the dataset
         num = 0
@@ -451,7 +465,7 @@ class Cloaker():
                 print(f"Average PSNR %0.4f" % (total_psnr / num))
                 print(f"Average MSE %0.4f" % (total_mse / num))
                 return
-            if self.verbosity == "log": print("Cloaking image", path)
+            if self.verbosity == "log": print("Applying makeup to image", path)
 
             # Cloak the image
             orig_im = self.images[path].copy()
