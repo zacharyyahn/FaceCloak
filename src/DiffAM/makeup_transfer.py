@@ -8,15 +8,15 @@ from PIL import Image
 import torch
 from torch import nn
 import torchvision.utils as tvu
-from models.ddpm.diffusion import DDPM
-from utils.diffusion_utils import get_beta_schedule, denoising_step
-from utils.image_processing import *
-from utils.model_utils import *
-from losses.id_loss import cal_adv_loss
-from losses.clip_loss import CLIPLoss
-from datasets.data_utils import get_dataset, get_dataloader
-from configs.paths_config import DATASET_PATHS, MODEL_PATHS
-from utils.align_utils import run_alignment
+from DiffAM.models.ddpm.diffusion import DDPM
+from DiffAM.utils.diffusion_utils import get_beta_schedule, denoising_step
+from DiffAM.utils.image_processing import *
+from DiffAM.utils.model_utils import *
+from DiffAM.losses.id_loss import cal_adv_loss
+from DiffAM.losses.clip_loss import CLIPLoss
+from DiffAM.datasets.data_utils import get_dataset, get_dataloader
+from DiffAM.configs.paths_config import DATASET_PATHS, MODEL_PATHS
+from DiffAM.utils.align_utils import run_alignment
 import torch.nn.functional as F
 import time
 import lpips

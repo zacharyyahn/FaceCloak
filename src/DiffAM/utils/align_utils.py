@@ -25,7 +25,7 @@ import dlib
 import multiprocessing as mp
 import math
 
-from configs.paths_config import MODEL_PATHS
+from DiffAM.configs.paths_config import MODEL_PATHS
 
 SHAPE_PREDICTOR_PATH = MODEL_PATHS["shape_predictor"]
 

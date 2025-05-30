@@ -7,8 +7,8 @@ import sys
 import os
 import torch
 import numpy as np
-from makeup_transfer import DiffAM_MT
-from makeup_removal import DiffAM_MR
+from DiffAM.makeup_transfer import DiffAM_MT
+from DiffAM.makeup_removal import DiffAM_MR
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()['__doc__'])

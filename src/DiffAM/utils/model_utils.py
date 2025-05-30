@@ -1,5 +1,5 @@
 import torch
-from assets.models import irse, ir152, facenet
+from DiffAM.assets.models import irse, ir152, facenet
 
 def get_model_list(target_model):
     if target_model == 0:

@@ -1,6 +1,6 @@
 from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, PReLU, Dropout, Sequential, Module
-from models.insight_face.helpers import get_blocks, Flatten, bottleneck_IR, bottleneck_IR_SE, l2_norm
-from models.insight_face.helpers import  Conv_block, Linear_block, Depth_Wise, Residual
+from DiffAM.models.insight_face.helpers import get_blocks, Flatten, bottleneck_IR, bottleneck_IR_SE, l2_norm
+from DiffAM.models.insight_face.helpers import  Conv_block, Linear_block, Depth_Wise, Residual
 """
 Modified Backbone implementation from [TreB1eN](https://github.com/TreB1eN/InsightFace_Pytorch)
 """

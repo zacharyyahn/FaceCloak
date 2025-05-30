@@ -73,7 +73,7 @@ for model in args.models:
 mtcnn = MTCNN(image_size=args.cropped_im_size, device=device).to(device)
 dist_func = distance_funcs[args.distance_function]
 
-evaluator = Evaluator(dataset_path=args.dataset_file, probe_path=args.probe_file, num_probes=args.num_probes, models=extractors, cropper=mtcnn, dataset_size=args.dataset_size, gallery_size=args.gallery_size, verbosity=args.verbosity, device=device, cropped_im_size=args.cropped_im_size, dist_func=dist_func)
+evaluator = Evaluator(dataset_path=args.dataset_file, probe_path=args.probe_file, models=extractors, cropper=mtcnn, dataset_size=args.dataset_size, gallery_size=args.gallery_size, verbosity=args.verbosity, device=device, cropped_im_size=args.cropped_im_size, dist_func=dist_func)
 
 outs = {model: [] for model in args.models}
 for gallery_size in args.gallery_size:

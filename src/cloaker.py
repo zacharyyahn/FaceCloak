@@ -1,6 +1,4 @@
 import torch
-from mozuma.models.arcface.pretrained import torch_arcface_insightface
-from facenet_pytorch import MTCNN
 import torch
 import cv2
 from tqdm import tqdm
@@ -123,13 +121,17 @@ class Cloaker():
             except:
                 None
 
-            if len(boxes) != 1:
-                if self.verbosity == "error": print("ERROR 2 in get_one_embed: Boxes are", boxes)
-                if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                self.paths.remove(path)
-                return None
+            # if len(boxes) != 1:
+            #     boxes = boxes[0]
+                # if self.verbosity == "error": print("ERROR 2 in get_one_embed: Boxes are", boxes)
+                # if self.verbosity == "error": print("REMOVING", path, "from dataset")
+                # self.paths.remove(path)
+                # return None
 
-            #print("Boxes are", boxes)
+            for i in range(4):
+                boxes[0][i] = int(boxes[0][i]) if boxes[0][i] >= 0.0 else 0
+            boxes[0][2] = boxes[0][2] if boxes[0][2] < im.shape[0] else im.shape[0] - 1
+            boxes[0][3] = boxes[0][3] if boxes[0][3] < im.shape[1] else im.shape[1] - 1
             self.boxes[path] = boxes[0]
 
             xmin = int(boxes[0][0])
@@ -145,7 +147,7 @@ class Cloaker():
                 crop = torch.Tensor(cv2.resize(crop, (self.cropped_im_size, self.cropped_im_size), interpolation=cv2.INTER_CUBIC))
                 crop = torch.permute(crop, (2, 0, 1))
             except Exception as e:
-                if self.verbosity == "error": print("ERROR 3 in get_one_embed:", e, "Empty crop on boxes", boxes)
+                if self.verbosity == "error": print("ERROR 3 in get_one_embed:", e, "Empty crop on boxes", boxes, "tried to crop to size", crop.shape)
                 if self.verbosity == "error": print("REMOVING", path, "from dataset")
                 self.paths.remove(path)
                 return None
@@ -301,7 +303,6 @@ class Cloaker():
         ymax = int(boxes[3])
 
         cropped = cv2.resize(cropped, (xmax - xmin, ymax - ymin), interpolation=cv2.INTER_CUBIC)
-
         # Retrieve the image and add the patch
         im = self.images[img_path]
         im = im.copy()
@@ -443,10 +444,10 @@ class Cloaker():
 
         # If we want to use the DiffAM method, prepare to call that code
         if makeup_mode == "DiffAM":
-            with open("DiffAM/configs/MT.yml", 'r') as f:
+            with open("src/DiffAM/configs/MT.yml", 'r') as f:
                 config = yaml.safe_load(f)
             config = dict2namespace(config)
-            model_path = "DiffAM/checkpoint/test_MT_CelebA_HQ_XMY-060_t60_ninv20_ngen6_dis1_dir0.3_lr8e-06_XMY-060-3.pth"
+            model_path = "src/DiffAM/checkpoint/test_MT_CelebA_HQ_XMY-060_t60_ninv20_ngen6_dis1_dir0.3_lr8e-06_XMY-060-3.pth"
             model = DDPM(config)
             ckpt = torch.load(model_path)
             learn_sigma = False
@@ -458,8 +459,11 @@ class Cloaker():
 
         # Iterate through each item in the dataset
         num = 0
+        prog_bar = tqdm(range(num_images))
         for path in self.paths:
             num += 1
+            prog_bar.update(1)
+            prog_bar.refresh()
             if num > num_images:
                 print(f"Average SSIM %0.4f" % (total_ssim / num))
                 print(f"Average PSNR %0.4f" % (total_psnr / num))
@@ -481,6 +485,9 @@ class Cloaker():
             # NOTE: Sometimes these images have different dimensions...?
             # Double check that it's the right size
             im = np.clip(im, a_min=0, a_max=255)
+            orig_im = cv2.resize(orig_im, (im.shape[0], im.shape[1]), interpolation=cv2.INTER_CUBIC)
+            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            orig_im = cv2.cvtColor(orig_im, cv2.COLOR_RGB2BGR)
 
             # Calculate PSNR, SSIM, and MSE
             try:
@@ -488,8 +495,8 @@ class Cloaker():
                 mse = np.mean(np.square((orig_im - im)))
                 total_mse += mse
                 total_psnr += 20.0 * log10(255.0 / sqrt(mse))
-            except:
-                if self.verbosity == "error": print("ERROR in calculating metrics")
+            except Exception as e:
+                if self.verbosity == "error": print("ERROR in calculating metrics:", e)
                 None
             
             if self.verbosity == "log": print("Right before writing, range is", np.min(im), np.max(im))

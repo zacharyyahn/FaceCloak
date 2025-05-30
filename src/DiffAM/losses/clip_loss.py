@@ -3,7 +3,7 @@ import torchvision.transforms as transforms
 import numpy as np
 import clip
 from PIL import Image
-from utils.text_templates import imagenet_templates
+from DiffAM.utils.text_templates import imagenet_templates
 
 
 class DirectionLoss(torch.nn.Module):

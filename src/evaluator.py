@@ -9,11 +9,10 @@ import random
 
 # Evaluator class takes a dataset and produces embeddings for every item in the dataset. It contains methods for evaluating the performance of a set of facial recognition models on that dataset by comparing embedding distances.
 class Evaluator:
-    def __init__(self, dataset_path, models, cropper, dataset_size = 0.01, probe_path=None, num_probes=100, gallery_size=100, verbosity="none", device=None, cropped_im_size=112, dist_func=None):
+    def __init__(self, dataset_path, models, cropper, dataset_size = 0.01, probe_path=None, gallery_size=100, verbosity="none", device=None, cropped_im_size=112, dist_func=None):
         self.paths = []
         self.device = device
         self.probe_paths = []
-        self.num_probes = num_probes
         self.models = models
         self.cropped_im_size = cropped_im_size
         self.cropper = cropper
@@ -140,6 +139,7 @@ class Evaluator:
             gal_size = gallery_size
             min_dist = 1000000
             most_similar = ""
+            num_seen = 0
             
             # Make sure we're randomizing how we select queries - different gallery each time
             queries = self.paths[:]
@@ -153,12 +153,13 @@ class Evaluator:
                 continue
 
 
-            while gal_size > 0:
-                idx = random.randint(0, len(queries)-1)
-                query_path = queries[idx]
+            while num_seen < gal_size:
+                #idx = random.randint(0, len(queries)-1)
+                query_path = queries[num_seen] # we no longer want to randomly select since we want to compare to the whole gallery
                 
                 # Check to make sure we don't match with the exact same image
                 if path == query_path:
+                    num_seen += 1
                     continue
                 
                 # Get the embedding for the current query
@@ -166,6 +167,7 @@ class Evaluator:
                 
                 # If query embedding is null, skip it
                 if query_emb[model] == None:
+                    num_seen += 1
                     continue
 
                 #print("Model", model, "has non-none query_emb")
@@ -176,7 +178,8 @@ class Evaluator:
                 if this_similar < min_dist:
                     min_dist = this_similar
                     most_similar = query_path
-                gal_size -= 1
+                num_seen += 1
+            print("Saw", num_seen, "total images during evaluation.")
             similars[model] = most_similar
         return similars
 
@@ -240,7 +243,6 @@ class Evaluator:
 
             # Find the similar items
             similars = self.find_most_similar_by_embed(this_path, gallery_size=self.gallery_size)
-            
             # If we couldn't find a face in the given probe image, we need to skip
             if similars == None:
                 #print("Similars were none, skipping...")

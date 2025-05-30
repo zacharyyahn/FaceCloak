@@ -2,7 +2,7 @@
 #SBATCH -JFaceCloak
 #SBATCH -N1 --gres=gpu:H100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
 #SBATCH -n4 -t16:00:00
-#SBATCH -ooutput/test_diffam.out
+#SBATCH -ooutput/test_cloak_vggface.out
 
 module load anaconda3
 conda init
@@ -29,14 +29,14 @@ echo $CONDA_PREFIX
 # num_cloaked_images: int number of images to cloak
 # num_dataset_images: float fraction of dataset to include in calculations
 
-python src/cloak.py --dataset_path "data/facescrub_small_flat" \
+python src/cloak.py --dataset_path "data/vggface_small_flat" \
 	--batch_size 1 \
 	--target_pool_size 100 \
 	--cropped_im_size 112 \
 	--num_cloaked_images 5000 \
 	--num_dataset_images 1.0 \
 	--norm_function "tanh" \
-	--cloak_save_path "data/cloaked/test_facescrub_small" \
+	--cloak_save_path "data/cloaked/test_vggface_small" \
 	--extractor_type "Facenet" \
 	--distance_function "l2" \
 	--cloak_function "sgd_cloak" \
@@ -48,5 +48,5 @@ python src/cloak.py --dataset_path "data/facescrub_small_flat" \
 	--cloak_function_max_pert 0.0627 \
 	--cloak_function_lr 0.5 \
 	--verbosity "none" \
-	--mode "makeup" \
-	--makeup_mode "DiffAM" \
+	--mode "perturb" \
+	#--makeup_mode "DiffAM" \

@@ -9,14 +9,14 @@ from torch import nn
 import torchvision.utils as tvu
 import lpips
 
-from models.ddpm.diffusion import DDPM
-from models.improved_ddpm.script_util import i_DDPM
-from utils.diffusion_utils import get_beta_schedule, denoising_step
-from losses import id_loss
-from losses.clip_loss import CLIPLoss
-from datasets.data_utils import get_dataset, get_dataloader
-from configs.paths_config import DATASET_PATHS, MODEL_PATHS
-from utils.align_utils import run_alignment
+from DiffAM.models.ddpm.diffusion import DDPM
+from DiffAM.models.improved_ddpm.script_util import i_DDPM
+from DiffAM.utils.diffusion_utils import get_beta_schedule, denoising_step
+from DiffAM.losses import id_loss
+from DiffAM.losses.clip_loss import CLIPLoss
+from DiffAM.datasets.data_utils import get_dataset, get_dataloader
+from DiffAM.configs.paths_config import DATASET_PATHS, MODEL_PATHS
+from DiffAM.utils.align_utils import run_alignment
 
 
 class DiffAM_MR(object):
