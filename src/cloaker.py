@@ -12,10 +12,12 @@ from torch.utils.data import DataLoader
 import random
 import time
 from math import sqrt, log10
+from AMTGAN.setup import setup_config, setup_argparser
+from AMTGAN.backbone import Inference, PostProcess, get_config
 from torchvision import transforms as trans
 from cloak_functions import pgd_cloak
 from DiffAM.main import dict2namespace
-from makeup_functions import diffam_makeup
+from makeup_functions import diffam_makeup, amtgan_makeup
 from DiffAM.models.ddpm.diffusion import DDPM
 from skimage.metrics import structural_similarity
 
@@ -110,30 +112,19 @@ class Cloaker():
             with torch.no_grad():
                 boxes, _ = self.cropper.detect(im)
             im = im.cpu().detach().numpy()
-            
-            # See if there are boxes. If not, or more than one, then we need to return
-            try:
-                if not boxes:
-                    if self.verbosity == "error": print("ERROR 1 in get_one_embed: Boxes are None")
-                    if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                    self.paths.remove(path)
-                    return None
-            except:
-                None
 
-            # if len(boxes) != 1:
-            #     boxes = boxes[0]
-                # if self.verbosity == "error": print("ERROR 2 in get_one_embed: Boxes are", boxes)
-                # if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                # self.paths.remove(path)
-                # return None
+            # Check for null boxes. If a box is none, replace it with the entire image.
+            if type(boxes) == type(None): 
+                boxes = [[0, 0, im.shape[1] - 1, im.shape[0] - 1]]
 
+            # Make sure that the boxes do not exceed the image size
             for i in range(4):
                 boxes[0][i] = int(boxes[0][i]) if boxes[0][i] >= 0.0 else 0
-            boxes[0][2] = boxes[0][2] if boxes[0][2] < im.shape[0] else im.shape[0] - 1
-            boxes[0][3] = boxes[0][3] if boxes[0][3] < im.shape[1] else im.shape[1] - 1
+            boxes[0][2] = boxes[0][2] if boxes[0][2] < im.shape[1] else im.shape[1] - 1
+            boxes[0][3] = boxes[0][3] if boxes[0][3] < im.shape[0] else im.shape[0] - 1
             self.boxes[path] = boxes[0]
 
+            # Parse out the values
             xmin = int(boxes[0][0])
             ymin = int(boxes[0][1])
             xmax = int(boxes[0][2])
@@ -438,12 +429,8 @@ class Cloaker():
         total_psnr = 0.0
         total_mse = 0.0
 
-        mode_to_func = {
-            "DiffAM": diffam_makeup
-        }
-
         # If we want to use the DiffAM method, prepare to call that code
-        if makeup_mode == "DiffAM":
+        if makeup_mode.lower() == "diffam":
             with open("src/DiffAM/configs/MT.yml", 'r') as f:
                 config = yaml.safe_load(f)
             config = dict2namespace(config)
@@ -456,6 +443,18 @@ class Cloaker():
             model = torch.nn.DataParallel(model)
             model.eval()
             print(f"{model_path} is loaded for makeup transfer.")
+
+        if makeup_mode.lower() == "amt-gan":
+            # parser = setup_argparser()
+            # args = parser.parse_args()
+            config = get_config()
+            config.source_dir = "/"
+            config.reference_dir = "/"
+            config.save_path = save_dir
+            config.device = 0
+            config.model_path = "src/AMTGAN/checkpoints/G.pth"
+            inference = Inference(config, self.device, "src/AMTGAN/checkpoints/G.pth")
+            postprocess = PostProcess(config)
 
         # Iterate through each item in the dataset
         num = 0
@@ -473,8 +472,10 @@ class Cloaker():
 
             # Cloak the image
             orig_im = self.images[path].copy()
-            im = mode_to_func[makeup_mode](path=path, model=model, config=config, device=self.device)
-            
+            if makeup_mode.lower() == "diffam":
+                im = diffam_makeup(path=path, model=model, config=config, device=self.device)
+            if makeup_mode.lower() == "amt-gan":
+                im = amtgan_makeup(path=path, inference=inference, postprocess=postprocess)
             # Check for a none image
             try:
                 if im == None:

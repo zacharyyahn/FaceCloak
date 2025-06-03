@@ -28,11 +28,11 @@ echo $CONDA_PREFIX
 # num_cloaked_images: int number of images to cloak
 # num_dataset_images: float fraction of dataset to include in calculations
 
-python src/cloak.py --dataset_path "data/lfw_flat" \
+python src/cloak.py --dataset_path "DATASET_PATH" \
         --batch_size 1 \
         --target_pool_size 500 \
         --cropped_im_size 112 \
-        --num_cloaked_images 1000 \
+        --num_cloaked_images 5000 \
         --num_dataset_images 1.0 \
         --norm_function "tanh" \
         --cloak_save_path "SAVE_PATH" \
@@ -40,11 +40,12 @@ python src/cloak.py --dataset_path "data/lfw_flat" \
         --distance_function "DISTANCE" \
         --cloak_function "OPTIMIZER" \
         --cloak_loss "LOSS_TYPE" \
-	--cloak_percep_loss "none" \
+	--cloak_percep_loss "dssim" \
         --percep_loss_weight 0.3 \
         --cloak_function_iters NUM_ITERATIONS \
         --cloak_function_step 0.00784 \
         --cloak_function_max_pert 0.0627 \
         --cloak_function_lr 0.5 \
-        --verbosity "none"
+        --verbosity "none" \
+        --mode "perturb"
 

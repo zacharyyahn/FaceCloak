@@ -12,6 +12,10 @@ src/DiffAM/checkpoint/*
 src/DiffAM/pretrained/*
 src/DiffAM/datasets/*
 src/DiffAM/runs/*
+src/AMTGAN/assets/*
+src/AMTGAN/datasets/*
+src/AMTGAN/checkpoints/*
+*pretrained/
 
 # C extensions
 *.so

@@ -11,8 +11,8 @@ conda activate Face
 
 echo $CONDA_PREFIX
 
-DATASET_FILE="data/pubfig_flat/"
+DATASET_FILE="NONCLOAKED_DATASET_FILE/"
 CLOAK_FILE="CLOAKED_DATASET_FILE/"
 
 
-python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 500 --dataset_size 1.0 --gallery_size 10000 --cropped_im_size 112 --verbosity "none" --models "Facenet" --distance_function "l2"
+python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 5000 --dataset_size 1.0 --gallery_size 5000 --cropped_im_size 112 --verbosity "none" --models MODEL_TO_EVAL --distance_function "l2"

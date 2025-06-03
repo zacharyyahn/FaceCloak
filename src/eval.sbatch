@@ -15,4 +15,4 @@ DATASET_FILE="data/facescrub_small_flat/"
 CLOAK_FILE="data/cloaked/test_diffam/"
 
 
-python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 5000 --dataset_size 1.0 --gallery_size 5000 --cropped_im_size 112 --verbosity "none" --models "Facenet" --distance_function "cosine"
+python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 100 --dataset_size 1.0 --gallery_size 5000 --cropped_im_size 112 --verbosity "none" --models "Facenet" --distance_function "cosine"

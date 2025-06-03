@@ -22,8 +22,8 @@ parser.add_argument("--num_cloaked_images", type=int, default=100, help="Number 
 parser.add_argument("--num_dataset_images", type=float, default=1.0, help="Number of images to take from dataset")
 parser.add_argument("--cloak_save_path", type=str, default="data/pubfig_cloaked", help="Path to save cloaked images")
 parser.add_argument("--verbosity", type=str, default="none", help="Error verbosity level")
-parser.add_argument("--extractor_type", type=str, default="none", help="The model to use for extracting embeddings")
-parser.add_argument("--distance_function", type=str, default="L2", help="Distance function to use when comparing embedding vectors")
+parser.add_argument("--extractor_type", type=str, default="Facenet", help="The model to use for extracting embeddings")
+parser.add_argument("--distance_function", type=str, default="l2", help="Distance function to use when comparing embedding vectors")
 parser.add_argument("--norm_function", type=str, default="tanh", help="Normalization function for preparing images")
 parser.add_argument("--cloak_function", type=str, default="pgd_cloak", help="The optimization to use for cloaking images")
 parser.add_argument("--cloak_loss", type=str, default="fawkes", help="The loss function to use for cloaking images.")
@@ -34,7 +34,7 @@ parser.add_argument("--cloak_function_lr", type=float, default=0.5, help="Learni
 parser.add_argument("--cloak_percep_loss", type=str, default="none", help="Perceptual loss to use in loss calculation. If none, only clipping will be used")
 parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighted factor for adding perceptual loss to cloak loss")
 parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode or makeup mode")
-parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either DiffAM, clip2protect, or AMT-GAN")
+parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either diffam or amt-gan")
 args = parser.parse_args()
 
 #assert args.num_dataset_images > args.num_cloaked_images

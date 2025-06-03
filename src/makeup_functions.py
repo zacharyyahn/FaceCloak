@@ -8,6 +8,21 @@ from DiffAM.utils.diffusion_utils import get_beta_schedule, denoising_step
 import os
 from tqdm import tqdm
 
+def amtgan_makeup(path, inference, postprocess):
+    reference_path = "src/AMTGAN/assets/datasets/MT-dataset/images/makeup/0d384dbbcc121ca5049c423f81c26e6a.png"
+    source = Image.open(path)
+    reference = Image.open(reference_path)
+    try:
+        image, face = inference.transfer(source, reference, with_face=True)
+    except Exception as e:
+        print("Encountered error:", e)
+        return None
+    # source_crop = source.crop((face.left(), face.top(), face.right(), face.bottom()))
+    # image = postprocess(source_crop, image)
+    im = np.array(image)
+    return im
+
+
 def diffam_makeup(path, model, config, device):
     n = 1
     # try:
@@ -23,7 +38,6 @@ def diffam_makeup(path, model, config, device):
     # tvu.save_image(img, os.path.join(
     #     self.args.image_folder, f'0_orig.png'))
     x0 = (img - 0.5) * 2.
-
 
     with torch.no_grad():
         # ---------------- Invert Image to Latent in case of Deterministic Inversion process -------------------#

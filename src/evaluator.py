@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 import random
+import time
 
 # Evaluator class takes a dataset and produces embeddings for every item in the dataset. It contains methods for evaluating the performance of a set of facial recognition models on that dataset by comparing embedding distances.
 class Evaluator:
@@ -74,24 +75,17 @@ class Evaluator:
                     boxes, _ = self.cropper.detect(im)
                 im = im.cpu().detach().numpy()
 
-                # See if there are boxes. If not, or more than one, then we need to return
-                try:
-                    if not boxes:
-                        if self.verbosity == "error": print("ERROR 1 in get_one_embed: Boxes are None")
-                        if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                        #self.paths.remove(path)
-                        emb[model] = None
-                        continue
-                except:
-                    None
+                # Check for null boxes. If a box is none, replace it with the entire image.
+                if type(boxes) == type(None): 
+                    boxes = [[0, 0, im.shape[1] - 1, im.shape[0] - 1]]
 
-                if len(boxes) != 1:
-                    if self.verbosity == "error": print("ERROR 2 in get_one_embed: Boxes are", boxes)
-                    if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                    #self.paths.remove(path)
-                    emb[model] = None
-                    continue
+                # Make sure that the boxes do not exceed the image size
+                for i in range(4):
+                    boxes[0][i] = int(boxes[0][i]) if boxes[0][i] >= 0.0 else 0
+                boxes[0][2] = boxes[0][2] if boxes[0][2] < im.shape[1] else im.shape[1] - 1
+                boxes[0][3] = boxes[0][3] if boxes[0][3] < im.shape[0] else im.shape[0] - 1
 
+                # Parse out the values
                 xmin = int(boxes[0][0])
                 ymin = int(boxes[0][1])
                 xmax = int(boxes[0][2])
@@ -101,7 +95,6 @@ class Evaluator:
                 crop = im[ymin:ymax, xmin:xmax, :].copy()
 
                 # Resize to be 112x112
-            
                 try:
                     crop = torch.Tensor(cv2.resize(crop, (self.cropped_im_size, self.cropped_im_size), interpolation=cv2.INTER_CUBIC))
                     crop = torch.permute(crop, (2, 0, 1))
@@ -143,18 +136,18 @@ class Evaluator:
             
             # Make sure we're randomizing how we select queries - different gallery each time
             queries = self.paths[:]
-            random.shuffle(queries)
+            #random.shuffle(queries)
 
             # If the embedding fails for whatever reason we skip to the next model
             path_embed = self.compute_single_embedding(path)
             if path_embed[model] == None:
-                #print("Couldn't find a path embedding for path", path)
+                print("Couldn't find a path embedding for path", path)
                 similars[model] = None
                 continue
 
 
-            while num_seen < gal_size:
-                #idx = random.randint(0, len(queries)-1)
+            while num_seen < gal_size and num_seen < len(self.paths):
+                #idx = random.randint(0, len(queries)-1) #comment this out and change the index on the next line to num_seen if you want to disable random selection
                 query_path = queries[num_seen] # we no longer want to randomly select since we want to compare to the whole gallery
                 
                 # Check to make sure we don't match with the exact same image
@@ -170,8 +163,6 @@ class Evaluator:
                     num_seen += 1
                     continue
 
-                #print("Model", model, "has non-none query_emb")
-
                 # Compare this one with the gallery image and see if it is better
                 this_similar = self.distance_func(path_embed[model], query_emb[model])
                 #print("Model", model, "has similarity here", this_similar)
@@ -179,7 +170,6 @@ class Evaluator:
                     min_dist = this_similar
                     most_similar = query_path
                 num_seen += 1
-            print("Saw", num_seen, "total images during evaluation.")
             similars[model] = most_similar
         return similars
 
@@ -231,29 +221,34 @@ class Evaluator:
         # Iterate through each item in the dataset and evaluate them
         print("Evaluating on", num_images, "cloaked images....")
         itr = 0
+        num_skipped = 0 # make sure we don't count failed images in our denominator for metric calculation.
         for i in tqdm(range(num_images)):
+            itr += 1
+            if itr > num_images or itr >= len(self.probe_paths):
+                break
             this_path = self.probe_paths[i]
             # Track how many we have looked at at stop if we excede the desired number
-            itr += 1
-            if itr > num_images:
-                break
 
             # Extract the base name from the path
             path_name = os.path.basename(this_path)[:os.path.basename(this_path).find("_")]
 
             # Find the similar items
             similars = self.find_most_similar_by_embed(this_path, gallery_size=self.gallery_size)
+
             # If we couldn't find a face in the given probe image, we need to skip
             if similars == None:
                 #print("Similars were none, skipping...")
+                num_skipped += 1
                 continue
 
             # Look at the most similar item for each model, and see which ones are accurate
             for model, match in similars.items():
                 if match == None:
                     #print("None match for model", model)
+                    num_skipped += 1
                     continue
                 match_name = os.path.basename(match)[:os.path.basename(match).find("_")]
+                print("Path name:", path_name, "Match_name:", match_name)
                 #print("Currently looking at model", model, "match", match)
                 if path_name == match_name:
                     #print("Increasing score for model", model)
@@ -262,7 +257,7 @@ class Evaluator:
         # Print the accuracy
         outs = {}
         for model in totals:
-            print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(itr)))
-            outs[model] = totals[model] / float(itr)
+            print(f"{model} Cloaked acc: %0.4f" % (totals[model] / float(itr - num_skipped)))
+            outs[model] = totals[model] / float(itr - num_skipped)
         return outs
 

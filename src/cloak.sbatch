@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -JFaceCloak
-#SBATCH -N1 --gres=gpu:H100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
+#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
 #SBATCH -n4 -t16:00:00
-#SBATCH -ooutput/test_cloak_vggface.out
+#SBATCH -ooutput/test_cloak_webface.out
 
 module load anaconda3
 conda init
@@ -18,8 +18,8 @@ echo $CONDA_PREFIX
 #TODO:
 # - Add a seed functionality so that results are replicable
 # - Need to see if MTCNN features can be improved. Does size of input image matter? What about postprocessing?
-# - See why we are sometimes getting None images if they aren't caught, in cloak_image
 # - See if all datasets (e.g. FaceScrub and LFW) also need MTCNN or if the pre-crop is enough
+# - Get specific details on makeup methods to see what model/dataset they are customized to attack
 
 # ---- Parameters ----
 # dataset_path: string path to dataset file
@@ -29,14 +29,15 @@ echo $CONDA_PREFIX
 # num_cloaked_images: int number of images to cloak
 # num_dataset_images: float fraction of dataset to include in calculations
 
-python src/cloak.py --dataset_path "data/vggface_small_flat" \
+python src/cloak.py \
+	--dataset_path "data/webface_small_flat" \
 	--batch_size 1 \
 	--target_pool_size 100 \
 	--cropped_im_size 112 \
 	--num_cloaked_images 5000 \
 	--num_dataset_images 1.0 \
 	--norm_function "tanh" \
-	--cloak_save_path "data/cloaked/test_vggface_small" \
+	--cloak_save_path "data/cloaked/test_webface" \
 	--extractor_type "Facenet" \
 	--distance_function "l2" \
 	--cloak_function "sgd_cloak" \
@@ -47,6 +48,6 @@ python src/cloak.py --dataset_path "data/vggface_small_flat" \
 	--cloak_function_step 0.00784 \
 	--cloak_function_max_pert 0.0627 \
 	--cloak_function_lr 0.5 \
-	--verbosity "none" \
+	--verbosity "error" \
 	--mode "perturb" \
-	#--makeup_mode "DiffAM" \
+	#--makeup_mode "AMT-GAN" \
