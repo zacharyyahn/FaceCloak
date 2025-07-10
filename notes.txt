@@ -1,0 +1,7 @@
+1. To get MMCV, needed to downgrade to Pytorch 2.0.0 and CUDA 11.8. Even though PACE uses 12.8 CUDA, apparently this is fine. Just confirm that pytorch can still connect to the gpu
+Once that is the correct system setting, you can manually find the proper MMCV distribution. If you don't get the right one for this pytorch and CUDA version, pip will attempt to build one for you, 
+and this will cause problems because PACE doesn't have C++ configured properly. So use this link for MMCV-full 1.7.2:
+
+pip install --no-cache-dir mmcv-full==1.7.2 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.0/index.html
+
+That should work.

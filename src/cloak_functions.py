@@ -106,8 +106,6 @@ def sgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     if args["loss_func_select"] == "triplet":
         loss_args["closest_emb"] = args["closest_emb"]
 
-    #optimizer = torch.optim.Adam([cropped], lr=args["lr"])
-
     start_loss = 0
     for i in pbar:
         #optimizer.zero_grad()
@@ -168,7 +166,6 @@ def pgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         
         # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
         if args["percep_loss"]:
-            percep_factor = args["percep_loss_weight"]
             loss = loss_fn(out_emb, loss_args)
             percep_loss = args["percep_loss"](cropped, orig_cropped)
             loss = loss + float(args["percep_loss_weight"]) * percep_loss
@@ -202,3 +199,73 @@ def pgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     diff = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
     cropped = torch.clip(orig_cropped + diff, min=-1, max=1)
     return cropped
+
+def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
+    print("Called PGD cloak multi!")
+    # Set up the necessary elements here and the parameters for the loss function
+    cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
+    for cropped in cropped_list: cropped.requires_grad = True
+
+    loss_args = {
+            "tgt_emb":tgt_emb,
+            "dist_func":args["dist_func"]
+            }
+
+    if args["loss_func_select"] == "triplet":
+        loss_args["closest_emb"] = args["closest_emb"]
+
+    # Initialize perturbation
+    pert = args["max_pert"] * 2*(torch.rand(cropped_list[0].size()) - .5)
+    pert.requires_grad = True
+    pert = pert.to(device)
+
+    # Two nested loops: One for iterations of the attack, the inner one for images in the cropped_list
+    pbar = tqdm(total=args["iters"])
+    start_loss = 0
+    for i in range(args["iters"]):
+        for cropped in cropped_list:
+
+            # Add the perturbation and get the new embedding
+            orig_cropped = cropped.clone()
+            cropped = cropped + pert
+            cropped = cropped.clone().detach()
+            cropped.requires_grad = True
+            out_emb = extractor(cropped)
+
+            # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
+            if args["percep_loss"]:
+                loss = loss_fn(out_emb, loss_args)
+                percep_loss = args["percep_loss"](cropped, orig_cropped)
+                loss = loss + float(args["percep_loss_weight"]) * percep_loss
+            else:
+                loss = loss_fn(out_emb, loss_args)
+            loss.backward(retain_graph=False)
+
+            # Calculate loss with current image
+            if i == 0:
+                start_loss = loss.item()
+            pbar.update(1)
+            pbar.set_postfix({'start_loss': start_loss, 'end_loss':loss.item()})
+
+            # Get the sign of the gradient
+            signed_grad = torch.sign(cropped.grad)
+
+            # Update pert according to current image, discarding cropped since we don't care
+            with torch.no_grad():
+                # Update cropped
+                cropped -= args["step"] * signed_grad
+
+                # Clip the perturbation to be within the viable range
+                pert = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
+
+                # Prepare pert for next iteration
+                pert = pert.detach().clone()
+                pert.requires_grad = True
+
+            del loss, out_emb
+            cropped.grad = None
+            #cropped = cropped.detach().clone()
+            torch.cuda.empty_cache()
+
+    # Make sure perturbation is clipped and return perturbation
+    return pert[0].detach().clone().cpu().squeeze().permute(1, 2, 0).numpy()

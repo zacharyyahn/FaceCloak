@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 from cloaker import Cloaker
-from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak 
-from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss
+from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, pgd_cloak_multi
+from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, untarget_loss
 from dist_functions import cosine_dist, l2_dist
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
 from insightface.recognition.arcface_torch.backbones import get_model
@@ -26,15 +26,19 @@ parser.add_argument("--extractor_type", type=str, default="Facenet", help="The m
 parser.add_argument("--distance_function", type=str, default="l2", help="Distance function to use when comparing embedding vectors")
 parser.add_argument("--norm_function", type=str, default="tanh", help="Normalization function for preparing images")
 parser.add_argument("--cloak_function", type=str, default="pgd_cloak", help="The optimization to use for cloaking images")
+parser.add_argument("--multi_cloak_function", type=str, default="pgd_cloak", help="The optimization for using multi-cloak on the images")
 parser.add_argument("--cloak_loss", type=str, default="fawkes", help="The loss function to use for cloaking images.")
+parser.add_argument("--multi_cloak_loss", type=str, default="fawkes", help="The loss function to use for multi-cloaking images.")
 parser.add_argument("--cloak_function_iters", type=int, default=10, help="Number of iterations to run the optimization")
-parser.add_argument("--cloak_function_step", type=float, default=1./255, help="Step size for optimization methods with step sizes")
-parser.add_argument("--cloak_function_max_pert", type=float, default=1./255, help="Maximum perturbation for optimization methods with max perturbations")
+parser.add_argument("--multi_cloak_function_iters", type=int, default=10, help="Number of iterations for multi-cloak optimization")
+parser.add_argument("--cloak_function_step", type=float, default=1., help="Step size for optimization methods with step sizes")
+parser.add_argument("--cloak_function_max_pert", type=float, default=1., help="Maximum perturbation for optimization methods with max perturbations")
 parser.add_argument("--cloak_function_lr", type=float, default=0.5, help="Learning rate for optimization methods with learning rates")
 parser.add_argument("--cloak_percep_loss", type=str, default="none", help="Perceptual loss to use in loss calculation. If none, only clipping will be used")
 parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighted factor for adding perceptual loss to cloak loss")
-parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode or makeup mode")
+parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode, multi mode, or makeup mode")
 parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either diffam or amt-gan")
+parser.add_argument("--gen_save_path", type=str, default="/", help="Path to save generated images, if using")
 args = parser.parse_args()
 
 #assert args.num_dataset_images > args.num_cloaked_images
@@ -42,6 +46,11 @@ args = parser.parse_args()
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
+if args.mode == "multi":
+      assert args.multi_cloak_function in ["pgd_cloak_multi"], "Multi mode is only compatible with multi cloak functions."
+
+args.cloak_function_step = args.cloak_function_step / 255.
+args.cloak_function_max_pert = args.cloak_function_max_pert / 255.
 
 model_shorthands = {
         "ArcFaceR18":"r18",
@@ -65,6 +74,7 @@ model_paths = {
         "CosFaceR100":"model_checkpoints/cosface_r100_glint360k.pth",
         }
 
+# Note: a function below adds CosFace and ArcFace models to this dictionary
 extractors = {
         #"ArcFace":torch_arcface_insightface(device).to(device),
         "Facenet":InceptionResnetV1(pretrained='vggface2').to(device)
@@ -72,6 +82,7 @@ extractors = {
 
 cloak_funcs = {
         "pgd_cloak":pgd_cloak,
+        "pgd_cloak_multi":pgd_cloak_multi,
         "sgd_cloak":sgd_cloak,
         "afog_cloak":afog_cloak,
     }
@@ -79,6 +90,7 @@ cloak_funcs = {
 cloak_losses = {
         "fawkes":fawkes_loss,
         "triplet":triplet_loss,
+        "untarget":untarget_loss
     }
 
 distance_funcs = {
@@ -109,17 +121,22 @@ def load_arcface_cosface_model(model):
     if_model.eval().to(device)
     extractors[model] = if_model
 
-# Get the extractor, cloaking optimization function, loss function
+# Get the extractor, cloaking optimization function, loss function. If we're using ArcFace or CosFace, normalize accordingly
 if "ArcFace" in args.extractor_type or "CosFace" in args.extractor_type:
     load_arcface_cosface_model(args.extractor_type)
+    norm_function = preprocess_divide
+    reverse_norm_function = reverse_divide
 
 extractor = extractors[args.extractor_type]
 cloak_function = cloak_funcs[args.cloak_function]
+multi_cloak_function = cloak_funcs[args.multi_cloak_function]
 loss_function = cloak_losses[args.cloak_loss]
+multi_loss_function = cloak_losses[args.multi_cloak_loss]
 distance_function = distance_funcs[args.distance_function]
 norm_function = norm_funcs[args.norm_function]
 reverse_norm_function = reverse_norm_funcs[args.norm_function]
 percep_loss_function = percep_losses[args.cloak_percep_loss]
+
 
 # Get MTCNN for crop and align
 mtcnn = MTCNN(image_size=args.cropped_im_size, device=device).to(device)
@@ -139,20 +156,27 @@ cloaker = Cloaker(
         verbosity=args.verbosity,
         distance_function=distance_function,
         cloak_function=cloak_function,
+        multi_cloak_function = multi_cloak_function,
         cloak_loss=loss_function,
+        multi_cloak_loss=multi_loss_function,
         cloak_function_iters=args.cloak_function_iters,
+        multi_cloak_function_iters=args.multi_cloak_function_iters,
         cloak_function_step=args.cloak_function_step,
         cloak_function_max_pert=args.cloak_function_max_pert,
         cloak_function_lr=args.cloak_function_lr,
         loss_func_select=args.cloak_loss,
+        multi_loss_func_select=args.multi_cloak_loss,
         norm_function = norm_function,
         reverse_norm_function = reverse_norm_function,
         percep_loss = percep_loss_function,
         percep_loss_weight = args.percep_loss_weight,
+        mode=args.mode
         )
 
 # Cloak images according to args
 if args.mode == "perturb":
         cloaker.cloak_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images)
+elif args.mode == "multi" or args.mode == "multi_finetune":
+        cloaker.cloak_all_multi(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, gen_save_path = args.gen_save_path)
 else:
      cloaker.makeup_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, makeup_mode=args.makeup_mode)

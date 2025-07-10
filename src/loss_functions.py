@@ -4,6 +4,9 @@ import scipy.stats as st
 import torch
 import lpips
 
+def untarget_loss(out_emb, args):
+    return -args["dist_func"](out_emb, args["tgt_emb"])
+
 def fawkes_loss(out_emb, args):
     return args["dist_func"](out_emb, args["tgt_emb"])
 

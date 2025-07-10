@@ -23,14 +23,14 @@ class Evaluator:
         self.embed_map = {model: {} for model in self.models} # save an embedding map for each model
         
         self.preprocessors = {
-                "ArcFaceR18":preprocess_tanh,
-                "ArcFaceR34":preprocess_tanh,
-                "ArcFaceR50":preprocess_tanh,
-                "ArcFaceR100":preprocess_tanh,
-                "CosFaceR18":preprocess_tanh,
-                "CosFaceR34":preprocess_tanh,
-                "CosFaceR50":preprocess_tanh,
-                "CosFaceR100":preprocess_tanh,
+                "ArcFaceR18":preprocess_divide,
+                "ArcFaceR34":preprocess_divide,
+                "ArcFaceR50":preprocess_divide,
+                "ArcFaceR100":preprocess_divide,
+                "CosFaceR18":preprocess_divide,
+                "CosFaceR34":preprocess_divide,
+                "CosFaceR50":preprocess_divide,
+                "CosFaceR100":preprocess_divide,
                 "Facenet":preprocess_tanh
                 }
 
@@ -45,9 +45,6 @@ class Evaluator:
         for path in os.listdir(probe_path):
             self.probe_paths.append(probe_path + path)
         print("Finished reading in", len(self.probe_paths), "probe paths from", probe_path)
-
-        #self.paths = self.paths[:50]
-        #self.cloaked_paths = self.cloaked_paths[:10]
     
     # Compute the L2 distance for two embeddings. Used to measure similarity of facial images
     # NOTE: If one model fails, all models fail in this implementation
@@ -56,24 +53,17 @@ class Evaluator:
         for model in self.models.keys():
             try:
                 emb[model] = self.embed_map[model][path]
-                #print("Found premade embed for", path)
                 continue
             except Exception as e:
-                if self.verbosity == "log": print("Did not find embedding for", path)
+                if self.verbosity == "error": print("Did not find embedding for", path)
 
                 # Read in the image and get the boxes from MTCNN
                 im = cv2.imread(path)
-                try:
-                    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-                except Exception as e:
-                    if self.verbosity == "error": print("ERROR in compute_single_embedding:", e)           
-                    emb[model] = None
-                    continue
+                im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
                 im = torch.Tensor(im).to(self.device)
 
                 with torch.no_grad():
                     boxes, _ = self.cropper.detect(im)
-                im = im.cpu().detach().numpy()
 
                 # Check for null boxes. If a box is none, replace it with the entire image.
                 if type(boxes) == type(None): 
@@ -92,12 +82,12 @@ class Evaluator:
                 ymax = int(boxes[0][3])
 
                 # Crop the area with the bounding box
-                crop = im[ymin:ymax, xmin:xmax, :].copy()
+                crop = im[ymin:ymax, xmin:xmax, :].clone()
 
                 # Resize to be 112x112
                 try:
-                    crop = torch.Tensor(cv2.resize(crop, (self.cropped_im_size, self.cropped_im_size), interpolation=cv2.INTER_CUBIC))
-                    crop = torch.permute(crop, (2, 0, 1))
+                    crop = torch.permute(crop, (2, 0, 1)).unsqueeze(0)
+                    crop = F.interpolate(crop, size=(self.cropped_im_size, self.cropped_im_size), mode="bilinear", align_corners=False)
                 except Exception as e:
                     if self.verbosity == "error": print("ERROR 3 in get_one_embed:", e, "Empty crop on boxes", boxes)
                     if self.verbosity == "error": print("REMOVING", path, "from dataset")
@@ -107,13 +97,8 @@ class Evaluator:
 
                 # Apply the normalization transform
                 crop = self.preprocessors[model](crop)
-                #print("After transform, crop has range", torch.min(crop), torch.max(crop))
-
-                # Add fake batching to work with mozuma
-                crop = crop.repeat((2, 1, 1, 1))
 
                 # Get the embeddings and save them
-                crop = crop.to(self.device)
                 with torch.no_grad():
                     embed = self.models[model](crop)
                     crop = crop.cpu().detach()
@@ -145,13 +130,12 @@ class Evaluator:
                 similars[model] = None
                 continue
 
-
             while num_seen < gal_size and num_seen < len(self.paths):
                 #idx = random.randint(0, len(queries)-1) #comment this out and change the index on the next line to num_seen if you want to disable random selection
                 query_path = queries[num_seen] # we no longer want to randomly select since we want to compare to the whole gallery
                 
                 # Check to make sure we don't match with the exact same image
-                if path == query_path:
+                if os.path.basename(path) == os.path.basename(query_path):
                     num_seen += 1
                     continue
                 
@@ -177,7 +161,6 @@ class Evaluator:
     def evaluate(self, num_images):
         totals = {model: 0 for model in self.models}
         
-        print("Evaluating on", num_images, "images...")
         for i in tqdm(range(num_images)):
             
             # Select a random image 

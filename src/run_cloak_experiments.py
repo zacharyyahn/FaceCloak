@@ -2,12 +2,18 @@ import os
 import sys
 import subprocess
 
-distances = ["l2"]
-optimizers = ["sgd_cloak"]
-losses = ["fawkes"]
-iterations = ["100"]
+distances = ["cosine"]
+optimizers = ["pgd_cloak"]
+multi_losses = ["triplet", "fawkes", "untarget"]
+losses = ["triplet"]
+iterations = ["2","10"]
+multi_iterations = ["10"]
 models = ["Facenet", "ArcFaceR100", "CosFaceR100"]
-datasets = ["facescrub_small_flat", "pubfig_small_flat", "vggface_small_flat", "webface_small_flat"]
+datasets = ["pubfig_small_flat"]
+perts = ["16"]
+modes = ["multi_finetune"]
+
+note = "poses"
 
 for data in datasets:
     prefix = "cloak_" + data
@@ -16,22 +22,35 @@ for data in datasets:
             for l in losses:
                 for i in iterations:
                     for m in models:
-                        template = open("src/cloak_template.txt",'r')
-                        template = template.read()
-                        save_line = f"{prefix}_{m}_{d}_{o}_{l}_{i}"
-                        f = open("autoscripts/" + save_line + ".sbatch", 'w')
-                        template = template.replace("DATASET_PATH", "data/" + data)
-                        template = template.replace("DISTANCE",d)
-                        template = template.replace("OPTIMIZER",o)
-                        template = template.replace("LOSS_TYPE",l)
-                        template = template.replace("NUM_ITERATIONS",i)
-                        template = template.replace("EXTRACTOR_TYPE",m)
-                        template = template.replace("SAVE_PATH","data/cloaked/" + save_line)
-                        template = template.replace("OUTPUT_PATH", "output/" + save_line + ".out")
-                        f.write(template)
-                        f.close()
+                        for p in perts:
+                            for t in modes:
+                                for q in multi_losses:
+                                    for z in multi_iterations:
+                                        template = open("src/cloak_template.txt",'r')
+                                        template = template.read()
+                                        if note == None:
+                                            save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}"
+                                        else:
+                                            save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}_{note}"
+                                        f = open("autoscripts/" + save_line + ".sbatch", 'w')
+                                        template = template.replace("DATASET_PATH", "data/" + data)
+                                        template = template.replace("DISTANCE",d)
+                                        template = template.replace("OPTIMIZER",o)
+                                        template = template.replace("LOSS_TYPE",l)
+                                        template = template.replace("LOSS_MULTI_TYPE", q)
+                                        template = template.replace("NUM_ITERATIONS",i)
+                                        template = template.replace("MULTI_ITERATIONS", z)
+                                        template = template.replace("EXTRACTOR_TYPE",m)
+                                        template = template.replace("PERT_MAX", p)
+                                        template = template.replace("ATTACK_MODE", t)
+                                        template = template.replace("SAVE_PATH","data/cloaked/" + save_line)
+                                        template = template.replace("OUTPUT_PATH", "output/" + save_line + ".out")
+                                        template = template.replace("SAVE_GEN_PATH", "data/gen/" + save_line)
+                                        f.write(template)
+                                        f.close()
 
-                        subprocess.run(["mkdir","data/cloaked/" + save_line])
-                        subprocess.run(["sbatch","autoscripts/" + save_line + ".sbatch"])
-                        print("Queued: autoscripts/" + prefix + "_" + save_line + ".sbatch")
+                                        subprocess.run(["mkdir","data/cloaked/" + save_line])
+                                        subprocess.run(["mkdir","data/gen/" + save_line ])
+                                        subprocess.run(["sbatch","autoscripts/" + save_line + ".sbatch"])
+                                        print("Queued: autoscripts/" + prefix + "_" + save_line + ".sbatch")
 

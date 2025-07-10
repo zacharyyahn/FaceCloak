@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -JFaceCloak
-#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G 
+#SBATCH -N1 --gres=gpu:A100:1 --ntasks-per-node=8 --mem-per-gpu=80G 
 #SBATCH -n4 -t16:00:00
-#SBATCH -ooutput/test_cloak_webface.out
+#SBATCH -ooutput/cloak_pubfig_small_flat_Facenet_cosine_pgd_cloak_triplet_8.out
 
 module load anaconda3
 conda init
@@ -10,6 +10,8 @@ conda deactivate
 conda activate Face
 
 echo $CONDA_PREFIX
+
+nvidia-smi
 
 
 # NOTE: Only support batch size of 1 right now because of errors with MTCNN breaking when not detecting a face.
@@ -30,24 +32,28 @@ echo $CONDA_PREFIX
 # num_dataset_images: float fraction of dataset to include in calculations
 
 python src/cloak.py \
-	--dataset_path "data/webface_small_flat" \
+	--dataset_path "data/pubfig_small_flat" \
 	--batch_size 1 \
 	--target_pool_size 100 \
 	--cropped_im_size 112 \
-	--num_cloaked_images 5000 \
+	--num_cloaked_images 500 \
 	--num_dataset_images 1.0 \
 	--norm_function "tanh" \
-	--cloak_save_path "data/cloaked/test_webface" \
+	--cloak_save_path "data/cloaked/cloak_pubfig_small_flat_Facenet_cosine_pgd_cloak_triplet_8" \
 	--extractor_type "Facenet" \
-	--distance_function "l2" \
-	--cloak_function "sgd_cloak" \
-	--cloak_loss "fawkes" \
+	--distance_function "cosine" \
+	--cloak_function "pgd_cloak" \
+	--multi_cloak_function "pgd_cloak_multi" \
+	--cloak_loss "triplet" \
+	--multi_cloak_loss "triplet" \
 	--cloak_percep_loss "dssim" \
 	--percep_loss_weight 0.3 \
-	--cloak_function_iters 100 \
-	--cloak_function_step 0.00784 \
-	--cloak_function_max_pert 0.0627 \
+	--cloak_function_iters 10 \
+	--multi_cloak_function_iters 10 \
+	--cloak_function_step 2 \
+	--cloak_function_max_pert 16 \
 	--cloak_function_lr 0.5 \
 	--verbosity "error" \
 	--mode "perturb" \
+	--gen_save_path "data/gen/cloak_pubfig_small_flat_multi_ArcFaceR100"
 	#--makeup_mode "AMT-GAN" \

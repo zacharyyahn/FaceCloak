@@ -3,7 +3,8 @@ import sys
 import subprocess
 
 makeup_methods = ["amt-gan","diffam"]
-datasets = ["facescrub_small_flat", "pubfig_small_flat", "vggface_small_flat", "webface_small_flat"]
+#datasets = ["facescrub_small_flat", "pubfig_small_flat", "vggface_small_flat", "webface_small_flat"]
+datasets = ["vggface_small_flat"]
 
 for data in datasets:
     prefix = "makeup_" + data
