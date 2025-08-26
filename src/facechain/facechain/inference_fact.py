@@ -30,8 +30,8 @@ def txt2img(pipe, face_image, pos_prompt, neg_prompt, num_images=10):
         images_style = pipe.generate(
             prompt=pos_prompt,
             face_image=face_image,
-            height=512,
-            width=512,
+            height=200,
+            width=200,
             guidance_scale=5,
             negative_prompt=neg_prompt,
             num_inference_steps=50,
@@ -40,7 +40,7 @@ def txt2img(pipe, face_image, pos_prompt, neg_prompt, num_images=10):
     return images_out
 
 
-def img_pad(pil_file, fixed_height=512, fixed_width=512):
+def img_pad(pil_file, fixed_height=200, fixed_width=200):
     w, h = pil_file.size
 
     if h / float(fixed_height) >= w / float(fixed_width):
@@ -83,8 +83,8 @@ def txt2img_multi(pipe,
             prompt=pos_prompt,
             face_image=face_image,
             image=images,
-            height=512,
-            width=512,
+            height=200,
+            width=200,
             guidance_scale=cfg_scale,
             negative_prompt=neg_prompt,
             controlnet_conditioning_scale=pose_control_weight,
@@ -144,10 +144,10 @@ def main_diffusion_inference_multi(num_gen_images,
     pose_image = img_pad(pose_image)
     if use_face_pose:
         pose_im = openpose(pose_image, include_hand=True)
-        pose_im = pose_im.resize((512, 512))
+        pose_im = pose_im.resize((200, 200))
     else:
         pose_im = openpose(pose_image, include_hand=True)
-        pose_im = pose_im.resize((512, 512))
+        pose_im = pose_im.resize((200, 200))
         result = segmentation_pipeline(pose_im)
         mask_rst = get_mask(result)
         pose_im = np.array(pose_im)
@@ -392,7 +392,7 @@ class GenPortrait:
             self.pose_control_weight = 0.0
             self.depth_control_weight = 0.0
 
-        self.out_img_size = 512
+        self.out_img_size = 200
         
         input_img = Image.open(input_img_path).convert('RGB')
         w, h = input_img.size

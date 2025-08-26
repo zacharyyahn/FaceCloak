@@ -15,8 +15,12 @@ src/DiffAM/runs/*
 src/AMTGAN/assets/*
 src/AMTGAN/datasets/*
 src/AMTGAN/checkpoints/*
+src/AMTGAN/faceutils/mask/resnet.pth
 *pretrained/
+src/Arc2Face/models/*
+src/Arc2Face/encoder/*
 *.pth
+*.safetensors
 
 # C extensions
 *.so

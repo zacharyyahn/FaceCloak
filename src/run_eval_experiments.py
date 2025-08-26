@@ -2,22 +2,30 @@ import os
 import subprocess
 
 #paths = [path for path in os.listdir("data/") if path.find("facescrub") != -1]
-methods = ["cosine_pgd_cloak_triplet_10_triplet_2_16_multi_finetune"]
+methods = [f"test_multi_only"]
 paths = ["pubfig_small_flat"]
-models = ["Facenet", "ArcFaceR100", "CosFaceR100"]
+models = ["Facenet"]
+eval_model = "Facenet"
+
+notes = None
 
 for path in paths:
    for model in models:
       for method in methods:
-         prefix = "cloak_" + path + "_" + model + "_" + method
+         #prefix = "cloak_" + path + "_" + model + "_" + method
+         prefix = method
+
          #prefix = path + "_" + model + "_" + method
-         output_file = "output/evaluate_"+prefix+".out"
+         if notes == None:
+            output_file = "output/evaluate_"+prefix+".out"
+         else:
+            output_file = "output/evaluate_"+prefix+"_"+notes+".out"
          template = open("src/eval_template.txt").read()
          template = template.replace("OUT_PATH", output_file)
          template = template.replace("NONCLOAKED_DATASET_FILE", "data/" + path)
          template = template.replace("CLOAKED_DATASET_FILE", "data/cloaked/" + prefix)
          #template = template.replace("CLOAKED_DATASET_FILE", "data/cloaked/" + prefix)
-         template = template.replace("MODEL_TO_EVAL", model)
+         template = template.replace("MODEL_TO_EVAL", eval_model) #NEED TO CHANGE BACK TO model
          f = open("autoscripts/evaluate_" + prefix + ".sbatch", 'w')
          f.write(template)
          f.close()

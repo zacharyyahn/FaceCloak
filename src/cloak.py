@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 from cloaker import Cloaker
-from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, pgd_cloak_multi
+from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, minmax_cloak, pgd_cloak_multi
 from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, untarget_loss
 from dist_functions import cosine_dist, l2_dist
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
@@ -33,6 +33,7 @@ parser.add_argument("--cloak_function_iters", type=int, default=10, help="Number
 parser.add_argument("--multi_cloak_function_iters", type=int, default=10, help="Number of iterations for multi-cloak optimization")
 parser.add_argument("--cloak_function_step", type=float, default=1., help="Step size for optimization methods with step sizes")
 parser.add_argument("--cloak_function_max_pert", type=float, default=1., help="Maximum perturbation for optimization methods with max perturbations")
+parser.add_argument("--multi_cloak_function_max_pert", type=float, default=1., help="Maximum perturbation for multicloak pretraining")
 parser.add_argument("--cloak_function_lr", type=float, default=0.5, help="Learning rate for optimization methods with learning rates")
 parser.add_argument("--cloak_percep_loss", type=str, default="none", help="Perceptual loss to use in loss calculation. If none, only clipping will be used")
 parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighted factor for adding perceptual loss to cloak loss")
@@ -51,6 +52,7 @@ if args.mode == "multi":
 
 args.cloak_function_step = args.cloak_function_step / 255.
 args.cloak_function_max_pert = args.cloak_function_max_pert / 255.
+args.multi_cloak_function_max_pert = args.multi_cloak_function_max_pert / 255.
 
 model_shorthands = {
         "ArcFaceR18":"r18",
@@ -82,15 +84,18 @@ extractors = {
 
 cloak_funcs = {
         "pgd_cloak":pgd_cloak,
+        "minmax_cloak":minmax_cloak,
         "pgd_cloak_multi":pgd_cloak_multi,
         "sgd_cloak":sgd_cloak,
         "afog_cloak":afog_cloak,
+        "none":None
     }
 
 cloak_losses = {
         "fawkes":fawkes_loss,
         "triplet":triplet_loss,
-        "untarget":untarget_loss
+        "untarget":untarget_loss,
+        "none":None
     }
 
 distance_funcs = {
@@ -163,6 +168,7 @@ cloaker = Cloaker(
         multi_cloak_function_iters=args.multi_cloak_function_iters,
         cloak_function_step=args.cloak_function_step,
         cloak_function_max_pert=args.cloak_function_max_pert,
+        multi_cloak_function_max_pert=args.multi_cloak_function_max_pert,
         cloak_function_lr=args.cloak_function_lr,
         loss_func_select=args.cloak_loss,
         multi_loss_func_select=args.multi_cloak_loss,
