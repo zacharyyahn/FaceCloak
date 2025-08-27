@@ -17,8 +17,8 @@ src/AMTGAN/datasets/*
 src/AMTGAN/checkpoints/*
 src/AMTGAN/faceutils/mask/resnet.pth
 *pretrained/
-src/Arc2Face/models/*
-src/Arc2Face/encoder/*
+src/arc2face/models/*
+src/arc2face/encoder/*
 *.pth
 *.safetensors
 
