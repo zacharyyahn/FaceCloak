@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -JFaceCloak
-#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G
+#SBATCH -N1 --gres=gpu:A100:1 --ntasks-per-node=4 --mem-per-gpu=80G
 #SBATCH -n4 -t16:00:00
 #SBATCH -oOUTPUT_PATH
 
@@ -8,6 +8,10 @@ module load anaconda3
 conda init
 conda deactivate
 conda activate Face
+
+export CUDA_LAUNCH_BLOCKING=1
+export TORCH_USE_CUDA_DSA=1
+
 
 echo $CONDA_PREFIX
 
@@ -32,7 +36,7 @@ python src/cloak.py --dataset_path "DATASET_PATH" \
         --batch_size 1 \
         --target_pool_size 500 \
         --cropped_im_size 112 \
-        --num_cloaked_images 5000 \
+        --num_cloaked_images 5 \
         --num_dataset_images 1.0 \
         --norm_function "divide" \
         --cloak_save_path "SAVE_PATH" \
@@ -46,7 +50,7 @@ python src/cloak.py --dataset_path "DATASET_PATH" \
         --percep_loss_weight DSSIM_VALUE \
         --cloak_function_iters NUM_ITERATIONS \
         --multi_cloak_function_iters MULTI_ITERATIONS \
-        --cloak_function_step 2 \
+        --cloak_function_step 3 \
         --cloak_function_max_pert PERT_MAX \
         --multi_cloak_function_max_pert MULTI_MAX_PERT \
         --cloak_function_lr 0.5 \

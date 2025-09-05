@@ -2,8 +2,8 @@ import os
 import subprocess
 
 #paths = [path for path in os.listdir("data/") if path.find("facescrub") != -1]
-methods = [f"test_multi_only"]
-paths = ["pubfig_small_flat"]
+methods = [f"test_multi_only_{num}_10.0_32" for num in [2]]
+paths = ["vggface_tiny_flat"]
 models = ["Facenet"]
 eval_model = "Facenet"
 

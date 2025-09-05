@@ -2,7 +2,7 @@ import os
 import random
 import shutil
 
-NUM_IDENTS = 500
+NUM_IDENTS = 50
 NUM_IMGS = 10
 
 d = "data/vggface/"
@@ -13,4 +13,4 @@ for id in keep_ids:
     keep_imgs = random.sample(ims, NUM_IMGS)
     for im in keep_imgs:
         im_name = im.replace("_", "") #need to get rid of the excess underscore here
-        shutil.copy(d + id + "/" + im, "data/vggface_small_flat/" + id + "_" + im_name)
+        shutil.copy(d + id + "/" + im, "data/vggface_tiny_flat/" + id + "_" + im_name)

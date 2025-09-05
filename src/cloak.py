@@ -10,7 +10,7 @@ from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, minmax_cloak, pgd_
 from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, untarget_loss
 from dist_functions import cosine_dist, l2_dist
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
-from insightface.recognition.arcface_torch.backbones import get_model
+from insightface_code.recognition.arcface_torch.backbones import get_model
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset_path", type=str, help="Path to clean images")
@@ -184,5 +184,7 @@ if args.mode == "perturb":
         cloaker.cloak_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images)
 elif args.mode == "multi" or args.mode == "multi_finetune":
         cloaker.cloak_all_multi(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, gen_save_path = args.gen_save_path)
+elif args.mode == "minmax" or args.mode == "multi_minmax":
+        cloaker.cloak_all_minmax(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, gen_save_path = args.gen_save_path)
 else:
      cloaker.makeup_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, makeup_mode=args.makeup_mode)

@@ -3,16 +3,16 @@ import sys
 import subprocess
 
 distances = ["cosine"]
-optimizers = ["pgd_cloak"]
+optimizers = ["minmax_cloak"]
 multi_losses = ["triplet"]
 losses = ["triplet"]
-iterations = ["0"]
+iterations = ["10"]
 multi_iterations = ["10"]
 models = ["Facenet"]
-datasets = ["pubfig_small_flat"]
+datasets = ["vggface_tiny_flat"]
 finetune_perts = ["32"]
 multi_perts = ["32"]
-modes = ["multi_finetune"]
+modes = ["minmax"]
 dssims = ["0.0"]
 
 
@@ -37,7 +37,7 @@ for data in datasets:
                                                 #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}"
                                                 # else:
                                                 #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}_{note}"
-                                                save_line = f"test_multi_only"
+                                                save_line = f"test_minmax"
                                                 f = open("autoscripts/" + save_line + ".sbatch", 'w')
                                                 template = template.replace("DATASET_PATH", "data/" + data)
                                                 template = template.replace("DISTANCE",d)

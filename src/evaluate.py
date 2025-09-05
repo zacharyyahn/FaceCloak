@@ -1,7 +1,7 @@
 from evaluator import Evaluator
 #from mozuma.models.arcface.pretrained import torch_arcface_insightface
 from facenet_pytorch import MTCNN, InceptionResnetV1
-from insightface.recognition.arcface_torch.backbones import get_model
+from insightface_code.recognition.arcface_torch.backbones import get_model
 from dist_functions import cosine_dist, l2_dist
 import argparse
 import torch
