@@ -37,7 +37,7 @@ for data in datasets:
                                                 #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}"
                                                 # else:
                                                 #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}_{note}"
-                                                save_line = f"test_minmax"
+                                                save_line = f"test_minmax_01"
                                                 f = open("autoscripts/" + save_line + ".sbatch", 'w')
                                                 template = template.replace("DATASET_PATH", "data/" + data)
                                                 template = template.replace("DISTANCE",d)

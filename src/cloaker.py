@@ -82,6 +82,8 @@ class Cloaker():
                     safety_checker=None
             )
             pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
+            pipeline.enable_attention_slicing()
+            #pipeline.enable_model_cpu_offload()
             self.pipeline = pipeline.to(device=self.device, dtype=torch.float16)
 
             # All of this is to try to stop annoying ONNX log attacks

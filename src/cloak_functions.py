@@ -166,14 +166,14 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     if args["loss_func_select"] == "triplet":
         loss_args["closest_emb"] = args["closest_emb"]
 
-    NUM_MINMAX_ITERATIONS = 2
-    GEN_ITERATIONS = 2
-    GEN_LEARNING_RATE = 100.0
+    NUM_MINMAX_ITERATIONS = 10
+    GEN_ITERATIONS = 5
+    GEN_LEARNING_RATE = 0.1
 
-    print("Original crop size is", torch.min(cropped), torch.max(cropped))
+    #print("Original crop size is", torch.min(cropped), torch.max(cropped))
 
     for minmax_iter in range(NUM_MINMAX_ITERATIONS):
-        print(f"---- Min-Max Iter {minmax_iter} -----")
+        #print(f"---- Min-Max Iter {minmax_iter} -----")
         
         # ------------
         # FIRST: Generate the perturbation against the current image
@@ -185,15 +185,13 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         
         for i in pbar:
             cropped = cropped.clone().detach().to(dtype=torch.float32).requires_grad_(True)
-
+            #print("Right before pert extractor, cropped size is", torch.min(cropped), torch.max(cropped))
             out_emb = extractor(cropped)
             
             # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
             if args["percep_loss"]:
                 loss = loss_fn(out_emb, loss_args)
                 percep_loss = args["percep_loss"](cropped.to(dtype=torch.float16), orig_cropped.to(dtype=torch.float16))
-                print("Perturb loss is:", loss)
-                print("Percep loss is:", percep_loss)
                 loss = loss + float(args["percep_loss_weight"]) * percep_loss
             else:
                 loss = loss_fn(out_emb, loss_args)
@@ -208,6 +206,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             # Get the sign of the gradient
             signed_grad = torch.sign(cropped.grad)
 
+            #print("Before perturbing and clipping, cropped is", torch.min(cropped), torch.max(cropped))
             with torch.no_grad():
                 # Update cropped
                 cropped -= args["step"] * signed_grad
@@ -216,8 +215,9 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
                 pert = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
 
                 # Add the perturbation back, but make sure we're within [-1, 1]
-                cropped = torch.clip(orig_cropped + pert, min=0, max=1.0)
+                cropped = torch.clip(orig_cropped + pert, min=-1.0, max=1.0)
 
+            #print("After perturbing and clipping, cropped is", torch.min(cropped), torch.max(cropped))
             # Clean up
             del loss, out_emb
             if cropped.grad is not None:
@@ -230,9 +230,10 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             pert = pert.detach().clone()
             cropped = torch.clip(orig_cropped + diff, min=-1, max=1)
             cropped = cropped.squeeze().detach().cpu().numpy().transpose((1, 2, 0))
+            orig_cropped = orig_cropped.squeeze().detach().cpu().numpy().transpose((1, 2, 0))
             
-        print("After PGD cropped is", cropped.shape)
-        print("After PGD cropped has range", np.min(cropped), np.max(cropped))
+        #print("After PGD cropped is", orig_cropped.shape)
+        #print("After PGD cropped has range", np.min(orig_cropped), np.max(orig_cropped))
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -243,16 +244,18 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
 
         # Get arcface embeddings of the orig cropped image, using the fallback if necessary
         try:
-            faces = args["app"].get(255.0 * ((cropped + 1) / 2))
+            faces = args["app"].get(255.0 * ((orig_cropped + 1) / 2))
             faces = sorted(faces, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1]  # select largest face (if more than one detected)
             id_emb = torch.tensor(faces['embedding'], dtype=torch.float16, device=device)[None]
-        except: # Note, the above try seems to always fail because of the first line
+        except Exception as e: # Note, the above try seems to always fail because of the first line
             #print(f"Error on app face recog for image, switching to second arcface INSIDE MINMAX.")
-            crop = args["norm_function"](cropped)
-            crop = torch.tensor(crop.transpose((2, 0, 1)), dtype=torch.float16, device=device).unsqueeze(0)
+            #crop = args["norm_function"](cropped)
+            #print('Error:', e)
+            crop = torch.tensor(orig_cropped, dtype=torch.float16, device=device).permute(2, 0, 1).unsqueeze(0)
+            #print("Right before gen backup embed, crop has range", torch.min(crop), torch.max(crop))
             id_emb = torch.tensor(args["backup_arcface"](crop), dtype=torch.float16, device=device).detach().clone()
-        
-        id_emb = torch.zeros((1, 512), dtype=torch.float16).to(args["device"])
+            #print("id emb is has range", torch.min(id_emb), torch.max(id_emb))
+        id_emb = id_emb/torch.norm(id_emb, dim=-1, keepdim=True)
         id_emb = project_face_embs(args["pipeline"], id_emb).detach().clone() # ensure no history
         
         #Prepare pert for applying to generated images - keep as tensor on GPU
@@ -261,27 +264,35 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         gc.collect()
         torch.cuda.empty_cache()
 
-        for k in range(GEN_ITERATIONS+1):
-            # Generate a new image from the embedding
-            id_emb = id_emb.detach().to(device=device, dtype=torch.float16).contiguous().requires_grad_(True)
+        pbar = tqdm(range(GEN_ITERATIONS+1), total=GEN_ITERATIONS, desc="Generating Images")
+        start_loss = 0
 
+        for k in pbar:
+            # Generate a new image from the embedding
+            pbar.update(1)
+            id_emb = id_emb.detach().to(device=device, dtype=torch.float16).requires_grad_(True)
+            #print("Passing in embeddings with range", torch.min(id_emb), torch.max(id_emb))
             images, _ = pipeline_forward_with_grad(
                 args["pipeline"],
                 prompt_embeds=id_emb,
                 num_inference_steps=25,
-                guidance_scale=7.5,
-                height=256,
-                width=256,
+                guidance_scale=3.0,
+                height=512,
+                width=512,
             )
 
             image = images[0].permute(1, 2, 0).type(dtype=torch.float16).contiguous()
+
+            #print("After gen, image has range", torch.min(image), torch.max(image))
+
             image_save = Image.fromarray((image.clone().detach().cpu().numpy() * 255.0).astype(np.uint8))
-            this_image_path = os.path.basename(args["image_path"][:-4])
-            image_save.save(f"data/cloaked/test_minmax/{this_image_path}_{minmax_iter}_{k}.png")
+            #this_image_path = os.path.basename(args["image_path"][:-4])
+            #image_save.save(f"data/cloaked/test_minmax/{this_image_path}_{minmax_iter}_{k}.png")
 
             with torch.no_grad():
                 # Move to CPU for cropper detection to avoid device conflicts
                 image_cpu = (255.0 * image.clone().detach().cpu()).numpy()
+                #print("Before gen cropped, image has range", np.min(image_cpu), np.max(image_cpu))
                 boxes, _ = args["cropper"].detect(image_cpu)
             
             # Process the boxes
@@ -305,10 +316,19 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
                 with torch.no_grad():
                     cropped = image[ymin:ymax, xmin:xmax, :].detach().clone().permute(2, 0, 1).unsqueeze(0)
                     cropped = F.interpolate(cropped, size=(112, 112))
-                    orig_cropped = cropped.clone() # we do this for perceptual comparison in the PGD loop
+                    cropped = 2.0 * (cropped - 0.5)
+                    orig_cropped = cropped.detach().clone() # we do this for perceptual comparison in the PGD loop
+                    #print("returning cropped", torch.min(orig_cropped), torch.max(orig_cropped))
+                    cropped = cropped.detach().clone()
+                    del image, images, image_save, image_cpu
+                    torch.cuda.empty_cache()
+                    gc.collect()
                 break
 
             # Apply perturbation with proper device handling
+            # Reshape image to [-1, 1] as expected by mask
+            image = 2.0 * (image - 0.5 )
+            #print("Before gen adding mask, image has range", torch.min(image), torch.max(image))
             with torch.no_grad():
                 face_region = image[ymin:ymax, xmin:xmax, :]
                 
@@ -324,21 +344,28 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
                     image[ymin:ymax, xmin:xmax, :] += pert_resized.to(image.device)
             #print("Image is after mask add is:", image)
             # Measure loss on the perturbed gen image
-            image = image.permute(2, 0, 1)
+            image = image.permute(2, 0, 1).clip(min=-1.0, max=1.0)
+            #print("After gen adding mask to image, range is", torch.min(image), torch.max(image))
             
             # Ensure proper device placement and data type
-            image_input = (255.0 * image).float().unsqueeze(0).to(device=device, dtype=torch.float32)
+            image_input = image.float().unsqueeze(0).to(device=device, dtype=torch.float32)
+            
+            #print("Right before gen extractor, image range is", torch.min(image_input), torch.max(image_input))
             out_emb = extractor(image_input)
             
             loss = -loss_fn(out_emb, loss_args) #negative because we want to do the opposite
-            print("Gen loss is:", loss.item())
+            #print("Gen loss is:", loss.item())
             
+            pbar.set_postfix({'start_loss': start_loss, 'end_loss':loss.item()})
+            if k == 0:
+                start_loss = loss.item()
+
             loss.backward(retain_graph=False)
 
             # Update the gen image to do worse next time
             with torch.no_grad():
                 if id_emb.grad is not None:
-                    print("Found id_emb grad and propagated")
+                    #print("Found id_emb grad and propagated")
                     old_id_emb = id_emb.clone()
                     id_emb = id_emb - GEN_LEARNING_RATE * id_emb.grad
                     old_id_emb[:, 4, :] = id_emb[:, 4, :]
@@ -347,13 +374,12 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             # Clean up
             if id_emb.grad is not None:
                 id_emb.grad = None
-            del loss, out_emb, image_input
-            
-                    
+            del loss, out_emb, image_input, images
+                   
             torch.cuda.empty_cache()
             gc.collect()
 
-    print("pert has range", torch.min(pert), torch.max(pert))
+    #print("final pert has range", 255.0 * torch.min(pert), 255.0 * torch.max(pert))
 
     return 255.0 * pert.to(dtype=torch.float32).detach().cpu().numpy()
     
