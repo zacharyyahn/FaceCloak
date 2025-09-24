@@ -148,7 +148,7 @@ def sgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
 
 def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     # Copy and save the original to measure modification. If we have access to the original image  (before multi-deepfake) then use that. Otherwise use the image given
-    if args["original_image"] is not None:
+    if args.get("original_image", None) is not None:
         print("** Using original image **")
         orig_cropped = args["original_image"].detach().clone()
     else:
@@ -166,13 +166,9 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     if args["loss_func_select"] == "triplet":
         loss_args["closest_emb"] = args["closest_emb"]
 
-    NUM_MINMAX_ITERATIONS = 10
-    GEN_ITERATIONS = 5
-    GEN_LEARNING_RATE = 0.1
-
     #print("Original crop size is", torch.min(cropped), torch.max(cropped))
 
-    for minmax_iter in range(NUM_MINMAX_ITERATIONS):
+    for minmax_iter in range(args["iters"]):
         #print(f"---- Min-Max Iter {minmax_iter} -----")
         
         # ------------
@@ -180,7 +176,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         # ------------
         
         # Iterate for iters iterations
-        pbar = tqdm(range(args["iters"]), total=args["iters"], desc="Generating Perturbation")
+        pbar = tqdm(range(args["single_iters"]), total=args["single_iters"], desc="Generating Perturbation")
         start_loss = 0
         
         for i in pbar:
@@ -264,7 +260,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         gc.collect()
         torch.cuda.empty_cache()
 
-        pbar = tqdm(range(GEN_ITERATIONS+1), total=GEN_ITERATIONS, desc="Generating Images")
+        pbar = tqdm(range(args["num_gen_iterations"]+1), total=args["num_gen_iterations"], desc="Generating Images")
         start_loss = 0
 
         for k in pbar:
@@ -312,7 +308,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             ymax = int(boxes[3])
 
             # If we've reached the end, we just want to continue with the new image
-            if k == GEN_ITERATIONS:
+            if k == args["num_gen_iterations"]:
                 with torch.no_grad():
                     cropped = image[ymin:ymax, xmin:xmax, :].detach().clone().permute(2, 0, 1).unsqueeze(0)
                     cropped = F.interpolate(cropped, size=(112, 112))
@@ -367,7 +363,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
                 if id_emb.grad is not None:
                     #print("Found id_emb grad and propagated")
                     old_id_emb = id_emb.clone()
-                    id_emb = id_emb - GEN_LEARNING_RATE * id_emb.grad
+                    id_emb = id_emb - args["gen_learning_rate"] * id_emb.grad
                     old_id_emb[:, 4, :] = id_emb[:, 4, :]
                     id_emb = old_id_emb.clone().detach()
             
@@ -454,6 +450,102 @@ def pgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     cropped = torch.clip(orig_cropped + diff, min=-1, max=1)
     return cropped
 
+def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
+    cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
+    for cropped in cropped_list: cropped.requires_grad = True
+    attn_lr = 10.0
+
+    # Adjust the perturbation budget and step size
+    #pert_budget = pert_budget * (orig_max - orig_min)
+    #step = step * (orig_max - orig_min)
+
+    # Make sure cropped will receive gradients as a fresh leaf tensor
+    cropped = cropped.detach().clone()
+    #cropped.requires_grad = True
+
+    attn_map = torch.ones_like(cropped).to(device).float()
+    #attn_map = torch.normal(1, 0.25, cropped.size()).to(device)
+    attn_map.requires_grad = True
+
+    pert = (2 * args["step"]) * torch.rand(cropped.size()).to(device) - args["step"]
+    #pert = torch.zeros_like(cropped).to(device).float()
+    pert.requires_grad = True
+
+    loss_args = {
+            "tgt_emb":tgt_emb,
+            "dist_func":args["dist_func"]
+            }
+
+    if args["loss_func_select"] == "triplet":
+        loss_args["closest_emb"] = args["closest_emb"]
+
+    # Iterate for iters iterations
+    pbar = tqdm(range(args["iters"]))
+    start_loss = 0
+    for i in pbar:
+        for cropped in cropped_list:
+            loss = 0
+
+            # Add the perturbation and get the new embedding
+            cropped = cropped.clone().detach()
+            orig_cropped = cropped.clone()
+            cropped.requires_grad = True
+            
+            # Do the first step of the update
+            cropped = orig_cropped + attn_map * pert
+
+            out_emb = extractor(cropped)
+
+            #blur = cv2.GaussianBlur(cropped, (13, 13), 0)
+
+            # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
+            if args["percep_loss"]:
+                loss += loss_fn(out_emb, loss_args)
+                percep_loss = args["percep_loss"](cropped, orig_cropped)
+                loss += float(args["percep_loss_weight"]) * percep_loss
+            else:
+                loss += loss_fn(out_emb, loss_args)
+            loss.backward()
+
+            if i == 0:
+                start_loss = loss.item()
+            pbar.set_postfix({'start_loss': start_loss, 'end_loss':loss.item()})
+
+            # Get the sign of the gradient
+            attn_grad = (attn_map.grad - torch.mean(attn_map.grad)) / (torch.std(attn_map.grad) + 0.01)
+            pert_grad = torch.sign(pert.grad)
+
+            with torch.no_grad():
+
+                attn_map = attn_map - attn_lr * attn_grad
+                pert = pert - args["step"] * pert_grad
+                
+            # Update the actual changes to the attention map and perturbation
+            attn_map = attn_map.detach().clone()
+            attn_map.requires_grad = True
+            pert = pert.detach().clone()
+            pert.requires_grad = True
+
+            # Reformulate the perturbed image and prepare to repeat. Detach from graph so we don't get double iteration
+            new_pert = torch.clip(torch.multiply(attn_map, pert), -args["max_pert"], args["max_pert"])
+            cropped = cropped.detach().clone()
+            cropped = torch.clip(cropped + new_pert, min=-1.0, max=1.0)
+
+            del loss, out_emb
+    
+    torch.cuda.empty_cache()
+
+    # print_attn_map = attn_map.clone().detach().cpu().squeeze().permute(1, 2, 0).numpy()
+    # print_attn_map = 255 * (print_attn_map - np.min(print_attn_map)) / (np.max(print_attn_map) - np.min(print_attn_map))
+    # Image.fromarray(print_attn_map.astype(np.uint8)).save("../data/test/attn/map.jpg")
+
+
+    cropped = cropped.clone()
+    diff = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
+    cropped = torch.clip(orig_cropped + diff, min=-1.0, max=1.0)
+    #cropped = cropped[0]
+    return new_pert.detach().clone().cpu().squeeze().permute(1, 2, 0).numpy()
+
 def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
     # Set up the necessary elements here and the parameters for the loss function
     cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
@@ -477,6 +569,7 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
     start_loss = 0
     for i in range(args["iters"]):
         for cropped in cropped_list:
+            loss = 0
 
             # Add the perturbation and get the new embedding
             orig_cropped = cropped.clone()
@@ -489,12 +582,14 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
 
             # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
             if args["percep_loss"]:
-                loss = loss_fn(out_emb, loss_args)
+                loss += loss_fn(out_emb, loss_args)
                 percep_loss = args["percep_loss"](cropped, orig_cropped)
-                loss = loss + float(args["percep_loss_weight"]) * percep_loss
+                loss += float(args["percep_loss_weight"]) * percep_loss
             else:
-                loss = loss_fn(out_emb, loss_args)
+                loss += loss_fn(out_emb, loss_args)
             loss.backward(retain_graph=False)
+
+            loss = loss / len(cropped_list) # normalize by num images
 
             # Calculate loss with current image
             if i == 0:

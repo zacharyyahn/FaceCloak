@@ -3,7 +3,7 @@ from collections import defaultdict
 import random
 import shutil
 
-NUM_CELEBS = 500
+NUM_CELEBS = 50
 NUM_IMGS = 10
 
 def find_underscore_backwards(word):
@@ -29,4 +29,4 @@ for name in keep_names:
     for im in keep_images:
         name = im[:find_underscore_backwards(im)].replace(" ","")
         num = im[find_underscore_backwards(im)+1:]
-        shutil.copy(d + im, "data/facescrub_small_flat/" + name + "_" + num)
+        shutil.copy(d + im, "data/facescrub_tiny_flat/" + name + "_" + num)

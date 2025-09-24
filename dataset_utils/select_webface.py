@@ -2,7 +2,7 @@ import os
 import random
 import shutil
 
-NUM_IDENTS = 500
+NUM_IDENTS = 50
 NUM_IMGS = 10
 
 d = "data/webface/"
@@ -12,7 +12,7 @@ for id in keep_ids:
     ims = os.listdir(d + id)
     keep_imgs = random.sample(ims, NUM_IMGS)
     for im in keep_imgs:
-        shutil.copy(d + id + "/" + im, "data/webface_small_flat/" + id + "_" + im)
+        shutil.copy(d + id + "/" + im, "data/webface_tiny_flat/" + id + "_" + im)
 
 
 

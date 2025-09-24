@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 from cloaker import Cloaker
-from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, minmax_cloak, pgd_cloak_multi
-from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, untarget_loss
+from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, afog_cloak_multi, minmax_cloak, pgd_cloak_multi
+from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, mse_loss, untarget_loss
 from dist_functions import cosine_dist, l2_dist
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
 from insightface_code.recognition.arcface_torch.backbones import get_model
@@ -40,6 +40,9 @@ parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighte
 parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode, multi mode, or makeup mode")
 parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either diffam or amt-gan")
 parser.add_argument("--gen_save_path", type=str, default="/", help="Path to save generated images, if using")
+parser.add_argument("--num_gen_iterations", type=int, default=5, help="Gen iterations when using minmax")
+parser.add_argument("--gen_learning_rate", type=float, default=0.1, help="Default learning rate for generating images")
+parser.add_argument("--num_images_to_gen", type=int, default=4)
 args = parser.parse_args()
 
 #assert args.num_dataset_images > args.num_cloaked_images
@@ -48,7 +51,7 @@ args = parser.parse_args()
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 if args.mode == "multi":
-      assert args.multi_cloak_function in ["pgd_cloak_multi"], "Multi mode is only compatible with multi cloak functions."
+      assert args.multi_cloak_function in ["pgd_cloak_multi", "afog_cloak_multi"], "Multi mode is only compatible with multi cloak functions."
 
 args.cloak_function_step = args.cloak_function_step / 255.
 args.cloak_function_max_pert = args.cloak_function_max_pert / 255.
@@ -88,6 +91,7 @@ cloak_funcs = {
         "pgd_cloak_multi":pgd_cloak_multi,
         "sgd_cloak":sgd_cloak,
         "afog_cloak":afog_cloak,
+        "afog_cloak_multi":afog_cloak_multi,
         "none":None
     }
 
@@ -116,6 +120,7 @@ reverse_norm_funcs = {
 percep_losses = {
         "dssim": dssim_loss,
         "lpips": lpips_loss,
+        "mse": mse_loss,
         "none": None
         }
 
@@ -176,6 +181,9 @@ cloaker = Cloaker(
         reverse_norm_function = reverse_norm_function,
         percep_loss = percep_loss_function,
         percep_loss_weight = args.percep_loss_weight,
+        num_gen_iterations = args.num_gen_iterations,
+        gen_learning_rate = args.gen_learning_rate,
+        num_images_to_generate=args.num_images_to_gen,
         mode=args.mode
         )
 

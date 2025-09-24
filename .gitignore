@@ -20,6 +20,9 @@ src/AMTGAN/faceutils/mask/resnet.pth
 src/arc2face/models/*
 src/arc2face/encoder/*
 *.pth
+*.npy
+*.onnx
+*.zip
 *.safetensors
 
 # C extensions

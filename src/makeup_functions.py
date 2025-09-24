@@ -30,7 +30,7 @@ def diffam_makeup(path, model, config, device):
     # except:
     img = Image.open(path).convert("RGB")
 
-    img = img.resize((256,256), Image.ANTIALIAS)
+    img = img.resize((256,256))
     img = np.array(img)/255
     img = torch.from_numpy(img).type(torch.FloatTensor).permute(
         2, 0, 1).unsqueeze(dim=0).repeat(n, 1, 1, 1)

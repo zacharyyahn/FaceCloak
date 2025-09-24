@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -JFaceEval
-#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G
+#SBATCH -N1 --gres=gpu:1 --ntasks-per-node=4 --mem-per-gpu=32G
 #SBATCH -n4 -t16:00:00
 #SBATCH -oOUT_PATH
 

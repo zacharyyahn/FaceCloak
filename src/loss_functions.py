@@ -34,3 +34,6 @@ def lpips_loss(out_img, tgt_img):
     #print("LPIPS: Out image, tgt image have ranges", np.min(out_img), np.max(out_img), np.min(tgt_img), np.max(tgt_img))
     lpips_loss = loss_fn_alex(out_img, tgt_img)[0][0][0][0]
     return lpips_loss
+
+def mse_loss(out_img, tgt_img):
+    return torch.mean(torch.multiply(out_img - tgt_img, out_img - tgt_img))
