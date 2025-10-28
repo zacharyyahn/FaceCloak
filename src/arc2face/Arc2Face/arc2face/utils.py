@@ -33,6 +33,8 @@ def project_face_embs(pipeline, face_embs):
     return prompt_embeds
 
 
+
+
 def image_align(img,
                 face_landmarks,
                 output_size=1024,

@@ -5,14 +5,15 @@ from itertools import product
 #paths = [path for path in os.listdir("data/") if path.find("facescrub") != -1]
 #methods = [f"cloak_{method}_dssim_{dssim}_pert_{pert}_{ims}ims" for method, dssim, pert, ims in product(["afog_cloak_multi"],[0.0, 1.0], [1], [4, 16, 64, 128])]
 #methods = [f"cloak_perturb_best_{dataset}_ft_itr_10" for dataset in ["pubfig_small_flat", "vggface_tiny_flat", "webface_tiny_flat", "facescrub_tiny_flat"] ]
-methods = [f"cloak_{type}_cloak_multi_best_webface_tiny_flat_ft_itr_{itr}_{ims}ims" for type, itr, ims in product(["afog", "pgd"], ["0", "2", "10"], ["4","64"])]
-paths = ["webface_tiny_flat"]
-models = ["Facenet"]
-eval_model = "Facenet"
+#methods = [f"cloak_afog_{mul_perts}_32_pc_w_{pc_w}_{num_ims}ims" for mul_perts, pc_w, num_ims in product(["4","8","16"], ["0.0","5.0", "10.0"],["1","4","16"])]
+methods = ["test_no_resize"]
+#methods = ["new_perturb_test"]
+gallery_dataset = ["privacy_common/gallery"]
+models = ["ArcFaceR100"]
 
 notes = None
 
-for path in paths:
+for gal_path in gallery_dataset:
    for model in models:
       for method in methods:
          #prefix = "cloak_" + path + "_" + method
@@ -23,10 +24,11 @@ for path in paths:
             output_file = "output/evaluate_"+prefix+"_"+notes+".out"
          template = open("src/eval_template.txt").read()
          template = template.replace("OUT_PATH", output_file)
-         template = template.replace("NONCLOAKED_DATASET_FILE", "data/" + path)
-         template = template.replace("CLOAKED_DATASET_FILE", "data/cloaked/" + prefix)
+         template = template.replace("NONCLOAKED_DATASET_FILE", "data/" + gal_path)
          #template = template.replace("CLOAKED_DATASET_FILE", "data/cloaked/" + prefix)
-         template = template.replace("MODEL_TO_EVAL", eval_model) #NEED TO CHANGE BACK TO model
+         #template = template.replace("CLOAKED_DATASET_FILE", "data/privacy_common/probe")
+         template = template.replace("CLOAKED_DATASET_FILE", "data/cloaked/" + prefix)
+         template = template.replace("MODEL_TO_EVAL", model)
          f = open("autoscripts/evaluate_" + prefix + ".sbatch", 'w')
          f.write(template)
          f.close()

@@ -10,14 +10,13 @@ import time
 
 # Evaluator class takes a dataset and produces embeddings for every item in the dataset. It contains methods for evaluating the performance of a set of facial recognition models on that dataset by comparing embedding distances.
 class Evaluator:
-    def __init__(self, dataset_path, models, cropper, dataset_size = 0.01, probe_path=None, gallery_size=100, verbosity="none", device=None, cropped_im_size=112, dist_func=None):
-        self.paths = []
+    def __init__(self, gallery_path, models, cropper, dataset_size = 0.01, probe_path=None, verbosity="none", device=None, cropped_im_size=112, dist_func=None):
+        self.gallery_paths = []
         self.device = device
         self.probe_paths = []
         self.models = models
         self.cropped_im_size = cropped_im_size
         self.cropper = cropper
-        self.gallery_size = gallery_size
         self.verbosity = verbosity
         self.distance_func = dist_func
         self.embed_map = {model: {} for model in self.models} # save an embedding map for each model
@@ -35,12 +34,12 @@ class Evaluator:
                 }
 
         # Load in the dataset and save the paths
-        for path in os.listdir(dataset_path):
-            self.paths.append(dataset_path + path)
+        for path in os.listdir(gallery_path):
+            self.gallery_paths.append(gallery_path + path)
         
-        random.shuffle(self.paths)
-        self.paths = self.paths[:int(dataset_size * len(self.paths))]
-        print("Finished reading in", len(self.paths), "gallery paths from", dataset_path)
+        random.shuffle(self.gallery_paths)
+        self.gallery_paths = self.gallery_paths[:int(dataset_size * len(self.gallery_paths))]
+        print("Finished reading in", len(self.gallery_paths), "gallery paths from", gallery_path)
 
         for path in os.listdir(probe_path):
             self.probe_paths.append(probe_path + path)
@@ -91,7 +90,6 @@ class Evaluator:
                 except Exception as e:
                     if self.verbosity == "error": print("ERROR 3 in get_one_embed:", e, "Empty crop on boxes", boxes)
                     if self.verbosity == "error": print("REMOVING", path, "from dataset")
-                    #self.paths.remove(path)
                     emb[model] = None
                     continue
 
@@ -101,6 +99,7 @@ class Evaluator:
                 # Get the embeddings and save them
                 with torch.no_grad():
                     embed = self.models[model](crop)
+                    embed = embed / torch.norm(embed, p=2, dim=1, keepdim=True)
                     crop = crop.cpu().detach()
 
                 #print("Finaly embed has shape", embeds.size())
@@ -111,18 +110,12 @@ class Evaluator:
 
 
     # Find the top-k most similar images to a given image. #Randomly selects gallery images from the dataset. Currently only works for k=1
-    def find_most_similar_by_embed(self, path, gallery_size=100, k=1):
+    def find_most_similar_by_embed(self, path, k=1):
         similars = {}
         for model in self.models.keys():
-            gal_size = gallery_size
-            min_dist = 1000000
+            min_dist = float('inf')
             most_similar = ""
-            num_seen = 0
             
-            # Make sure we're randomizing how we select queries - different gallery each time
-            queries = self.paths[:]
-            #random.shuffle(queries)
-
             # If the embedding fails for whatever reason we skip to the next model
             path_embed = self.compute_single_embedding(path)
             if path_embed[model] == None:
@@ -130,13 +123,9 @@ class Evaluator:
                 similars[model] = None
                 continue
 
-            while num_seen < gal_size and num_seen < len(self.paths):
-                #idx = random.randint(0, len(queries)-1) #comment this out and change the index on the next line to num_seen if you want to disable random selection
-                query_path = queries[num_seen] # we no longer want to randomly select since we want to compare to the whole gallery
-                
+            for query_path in self.gallery_paths:                
                 # Check to make sure we don't match with the exact same image
                 if os.path.basename(path) == os.path.basename(query_path):
-                    num_seen += 1
                     continue
                 
                 # Get the embedding for the current query
@@ -144,7 +133,6 @@ class Evaluator:
                 
                 # If query embedding is null, skip it
                 if query_emb[model] == None:
-                    num_seen += 1
                     continue
 
                 # Compare this one with the gallery image and see if it is better
@@ -153,7 +141,6 @@ class Evaluator:
                 if this_similar < min_dist:
                     min_dist = this_similar
                     most_similar = query_path
-                num_seen += 1
             similars[model] = most_similar
         return similars
 
@@ -164,10 +151,10 @@ class Evaluator:
         for i in tqdm(range(num_images)):
             
             # Select a random image 
-            idx = random.randint(0, len(self.paths)-1)
+            idx = random.randint(0, len(self.gallery_paths)-1)
             
             # Get the path at this index
-            this_path = self.paths[idx]
+            this_path = self.gallery_paths[idx]
             
             # Skip if this is a null image
             if self.embed_map[self.models[0]][this_path] is None: # Skip if we have a null image with no face
@@ -177,7 +164,7 @@ class Evaluator:
             path_name = os.path.basename(this_path)[:os.path.basename(this_path).find("_")]
             
             # Find the most similar image
-            similars = self.find_most_similar(this_path, k=1, gallery_size=self.gallery_size)
+            similars = self.find_most_similar(this_path, k=1)
             
             # If we couldn't find an embedding for the current face, we'll have to skip it
             if similars == None:
@@ -198,17 +185,15 @@ class Evaluator:
         for model in totals:
             print(f"{model} acc: %0.4f" % (totals[model] / float(num_images)))
 
-    def evaluate_all(self, num_images):
+    def evaluate_all(self):
         totals = {model: 0 for model in self.models}
 
         # Iterate through each item in the dataset and evaluate them
-        print("Evaluating on", num_images, "cloaked images....")
+        print("Evaluating on", len(self.probe_paths), "cloaked images....")
         itr = 0
         num_skipped = 0 # make sure we don't count failed images in our denominator for metric calculation.
-        for i in tqdm(range(num_images)):
+        for i in tqdm(range(len(self.probe_paths))):
             itr += 1
-            if itr > num_images or itr >= len(self.probe_paths):
-                break
             this_path = self.probe_paths[i]
             # Track how many we have looked at at stop if we excede the desired number
 
@@ -216,7 +201,7 @@ class Evaluator:
             path_name = os.path.basename(this_path)[:os.path.basename(this_path).find("_")]
 
             # Find the similar items
-            similars = self.find_most_similar_by_embed(this_path, gallery_size=self.gallery_size)
+            similars = self.find_most_similar_by_embed(this_path)
 
             # If we couldn't find a face in the given probe image, we need to skip
             if similars == None:

@@ -6,19 +6,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 from cloaker import Cloaker
-from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, afog_cloak_multi, minmax_cloak, pgd_cloak_multi
+from cloak_functions import pgd_cloak, sgd_cloak, afog_cloak, afog_cloak_multi, minmax_cloak, pgd_cloak_multi, pgd_cloak_sticker
 from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, mse_loss, untarget_loss
 from dist_functions import cosine_dist, l2_dist
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
 from insightface_code.recognition.arcface_torch.backbones import get_model
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset_path", type=str, help="Path to clean images")
+parser.add_argument("--probe_dataset_path", type=str, help="Path to probe images")
+parser.add_argument("--gallery_dataset_path", type=str, help="Path to gallery images")
 parser.add_argument("--extractor_path", type=str, default=None, help="Path to extractor")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch Size")
 parser.add_argument("--cropped_im_size", type=int, default=112, help="Crop size to apply MTCNN")
-parser.add_argument("--target_pool_size", type=int, default=100, help="Number of images to compare with to find target")
-parser.add_argument("--num_cloaked_images", type=int, default=100, help="Number of images to cloak")
 parser.add_argument("--num_dataset_images", type=float, default=1.0, help="Number of images to take from dataset")
 parser.add_argument("--cloak_save_path", type=str, default="data/pubfig_cloaked", help="Path to save cloaked images")
 parser.add_argument("--verbosity", type=str, default="none", help="Error verbosity level")
@@ -51,7 +50,7 @@ args = parser.parse_args()
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 if args.mode == "multi":
-      assert args.multi_cloak_function in ["pgd_cloak_multi", "afog_cloak_multi"], "Multi mode is only compatible with multi cloak functions."
+      assert args.multi_cloak_function in ["pgd_cloak_multi", "afog_cloak_multi", "pgd_cloak_sticker"], "Multi mode is only compatible with multi cloak functions."
 
 args.cloak_function_step = args.cloak_function_step / 255.
 args.cloak_function_max_pert = args.cloak_function_max_pert / 255.
@@ -89,6 +88,7 @@ cloak_funcs = {
         "pgd_cloak":pgd_cloak,
         "minmax_cloak":minmax_cloak,
         "pgd_cloak_multi":pgd_cloak_multi,
+        "pgd_cloak_sticker":pgd_cloak_sticker,
         "sgd_cloak":sgd_cloak,
         "afog_cloak":afog_cloak,
         "afog_cloak_multi":afog_cloak_multi,
@@ -155,13 +155,12 @@ print("Extracting with model:", args.extractor_type)
 
 # Initialize cloaker
 cloaker = Cloaker(
-        dataset_path=args.dataset_path, 
+        probe_dataset_path=args.probe_dataset_path, 
+        gallery_dataset_path=args.gallery_dataset_path,
         extractor=extractor, 
         cropper=mtcnn, 
         batch_size=args.batch_size, 
         cropped_im_size=args.cropped_im_size, 
-        target_pool_size=args.target_pool_size, 
-        num_dataset_images=args.num_dataset_images, 
         device=device, 
         verbosity=args.verbosity,
         distance_function=distance_function,
@@ -184,15 +183,25 @@ cloaker = Cloaker(
         num_gen_iterations = args.num_gen_iterations,
         gen_learning_rate = args.gen_learning_rate,
         num_images_to_generate=args.num_images_to_gen,
-        mode=args.mode
+        mode=args.mode,
         )
 
 # Cloak images according to args
 if args.mode == "perturb":
-        cloaker.cloak_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images)
+        cloaker.cloak_all(save_dir = args.cloak_save_path)
 elif args.mode == "multi" or args.mode == "multi_finetune":
-        cloaker.cloak_all_multi(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, gen_save_path = args.gen_save_path)
+        paths = [
+              "data/privacy_common/probe/226630_10.jpg",
+                "data/privacy_common/probe/357967_1.jpg", 
+                "data/privacy_common/probe/357967_0.jpg", 
+                "data/privacy_common/probe/6632_0.jpg",
+                "data/privacy_common/probe/655128_10.jpg",
+                "data/privacy_common/probe/626950_0.jpg",
+                "data/privacy_common/probe/540129_7.jpg",
+                "data/privacy_common/probe/540129_11.jpg"
+                ]
+        cloaker.cloak_all_multi(save_dir = args.cloak_save_path, gen_save_path = args.gen_save_path)#, do_paths=paths)
 elif args.mode == "minmax" or args.mode == "multi_minmax":
-        cloaker.cloak_all_minmax(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, gen_save_path = args.gen_save_path)
+        cloaker.cloak_all_minmax(save_dir = args.cloak_save_path, gen_save_path = args.gen_save_path)
 else:
-     cloaker.makeup_all(save_dir = args.cloak_save_path, num_images=args.num_cloaked_images, makeup_mode=args.makeup_mode)
+     cloaker.makeup_all(save_dir = args.cloak_save_path, makeup_mode=args.makeup_mode)

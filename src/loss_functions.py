@@ -15,7 +15,10 @@ def fawkes_loss(out_emb, args):
 
 # Decrease distance between self and target, and increase distance between self and closest
 def triplet_loss(out_emb, args):
-    return args["dist_func"](out_emb, args["tgt_emb"]) - args["dist_func"](out_emb, args["closest_emb"])
+    far = args["dist_func"](out_emb, args["tgt_emb"])
+    close = args["dist_func"](out_emb, args["closest_emb"])
+    #print("Far dist:", far, "Close dist:", close)
+    return far - close
 
 def dssim_loss(out_img, tgt_img):
     #out_img = np.transpose(out_img, (2, 0, 1))

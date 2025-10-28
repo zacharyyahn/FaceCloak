@@ -4,26 +4,27 @@ import subprocess
 from itertools import product
 
 distances = ["cosine"]
-cloak_funcs = ["afog_cloak"]
-multi_cloak_funcs = ["afog_cloak_multi","pgd_cloak_multi"]
+cloak_funcs = ["pgd_cloak"]
+multi_cloak_funcs = ["pgd_cloak_multi"]
 multi_losses = ["triplet"]
 losses = ["triplet"]
-iterations = ["0","2","10"]
+iterations = ["0"]
 multi_iterations = ["10"]
 gen_iterations = ["0"]
 gen_lr = ["0.0"]
-models = ["Facenet"]
-datasets = ["webface_tiny_flat"]
+models = ["ArcFaceR100"]
+probe_dataset = ["privacy_common/probe"]
+gallery_dataset = ["privacy_common/gallery"]
 pert_steps = ["2"]
-finetune_perts = ["16"]
-multi_perts = ["16"]
-modes = ["multi_finetune"]
+finetune_perts = ["0"]
+multi_perts = ["2"]
+modes = ["multi"]
 percep_funcs = ["dssim"]
-percep_weights = ["1.0"]
-num_images_to_generate = ["4","64"]
+percep_weights = ["0.0"]
+num_images_to_generate = ["4"]
 notes = ["none"]
 
-for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, note in product(*[
+for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, note in product(*[
     distances, 
     cloak_funcs, 
     multi_cloak_funcs,
@@ -34,7 +35,8 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, data, f
     gen_iterations,
     gen_lr,
     models,
-    datasets,
+    probe_dataset,
+    gallery_dataset,
     finetune_perts,
     multi_perts,
     pert_steps,
@@ -48,7 +50,10 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, data, f
     template = open("src/cloak_template.txt",'r')
     template = template.read()
     #save_line = f"cloak_{mcf}_dssim_{pc_w}_pert_{pert_steps}_{num_ims}ims"
-    save_line = f"cloak_{mcf}_best_{data}_ft_itr_{itr}_{num_ims}ims"
+    #save_line = f"cloak_afog_{mul_perts}_32_pc_w_{pc_w}_{num_ims}ims"
+    save_line = f"test_no_resize"
+    #save_line = f"multi_fixes_test"
+    #save_line = f"afog_multi_test_4ims"
     # if mode == "multi_finetune":
     #     save_line = f"cloak_{data}_{mode}_{model}_{dist}_{mcf}_{mul_loss}_{mul_itr}_{mul_perts}_{cf}_{loss}_{itr}_{ft_perts}_{pert_steps}_{pc_f}_{pc_w}_{note}"
     #     print("save line is:", save_line)
@@ -62,7 +67,8 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, data, f
     # else:
     #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}_{note}"
     f = open("autoscripts/" + save_line + ".sbatch", 'w')
-    template = template.replace("DATASET_PATH", "data/" + data)
+    template = template.replace("PROBE_DATASET_PATH", "data/" + probe_data)
+    template = template.replace("GALLERY_DATASET_PATH", "data/" + gal_data)
     template = template.replace("DISTANCE",dist)
     template = template.replace("CF",cf)
     template = template.replace("MULTI_CLOAK_FUNC",mcf)

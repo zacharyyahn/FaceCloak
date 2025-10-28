@@ -11,6 +11,7 @@ from diffusers import StableDiffusionPipeline, UNet2DConditionModel, DPMSolverMu
 from insightface.app import FaceAnalysis
 from PIL import Image
 import os
+from sticker_handler import StickerHandler
 
 def afog_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     orig_cropped = cropped.detach().clone()
@@ -49,6 +50,7 @@ def afog_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
     start_loss = 0
     for i in pbar:
         out_emb = extractor(cropped)
+        out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
 
         # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
         if args["percep_loss"]:
@@ -121,6 +123,7 @@ def sgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
         cropped = cropped.clone().detach().requires_grad_()
         #cropped.requires_grad = True
         out_emb = extractor(cropped)
+        out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
         
         # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
         if args["percep_loss"]:
@@ -183,6 +186,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             cropped = cropped.clone().detach().to(dtype=torch.float32).requires_grad_(True)
             #print("Right before pert extractor, cropped size is", torch.min(cropped), torch.max(cropped))
             out_emb = extractor(cropped)
+            out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
             
             # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
             if args["percep_loss"]:
@@ -348,6 +352,7 @@ def minmax_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
             
             #print("Right before gen extractor, image range is", torch.min(image_input), torch.max(image_input))
             out_emb = extractor(image_input)
+            out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
             
             loss = -loss_fn(out_emb, loss_args) #negative because we want to do the opposite
             #print("Gen loss is:", loss.item())
@@ -411,6 +416,7 @@ def pgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
 
         #cropped.requires_grad = True
         out_emb = extractor(cropped)
+        out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
         
         # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
         if args["percep_loss"]:
@@ -455,21 +461,19 @@ def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
     for cropped in cropped_list: cropped.requires_grad = True
     attn_lr = 10.0
 
-    # Adjust the perturbation budget and step size
-    #pert_budget = pert_budget * (orig_max - orig_min)
-    #step = step * (orig_max - orig_min)
-
     # Make sure cropped will receive gradients as a fresh leaf tensor
     cropped = cropped.detach().clone()
-    #cropped.requires_grad = True
 
     attn_map = torch.ones_like(cropped).to(device).float()
     #attn_map = torch.normal(1, 0.25, cropped.size()).to(device)
     attn_map.requires_grad = True
 
-    pert = (2 * args["step"]) * torch.rand(cropped.size()).to(device) - args["step"]
+    pert = 2 * args["max_pert"] * (torch.rand(cropped.size()).to(device) - 0.5)
+    print("DEBUG: original pert has range", torch.min(pert), torch.max(pert))
     #pert = torch.zeros_like(cropped).to(device).float()
     pert.requires_grad = True
+
+    new_pert = attn_map * pert
 
     loss_args = {
             "tgt_emb":tgt_emb,
@@ -478,6 +482,10 @@ def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
 
     if args["loss_func_select"] == "triplet":
         loss_args["closest_emb"] = args["closest_emb"]
+
+    out_emb = extractor(cropped)
+    out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
+    print("Before any perturbation, loss is:", loss_fn(out_emb, loss_args))
 
     # Iterate for iters iterations
     pbar = tqdm(range(args["iters"]))
@@ -492,15 +500,17 @@ def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
             cropped.requires_grad = True
             
             # Do the first step of the update
-            cropped = orig_cropped + attn_map * pert
+            cropped = orig_cropped + new_pert # WAS attn_map + pert
+
+            if orig_cropped.size() != new_pert.size(): continue
 
             out_emb = extractor(cropped)
-
-            #blur = cv2.GaussianBlur(cropped, (13, 13), 0)
+            out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
 
             # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
             if args["percep_loss"]:
                 loss += loss_fn(out_emb, loss_args)
+                print("DEBUG: Triplet loss value:", loss)
                 percep_loss = args["percep_loss"](cropped, orig_cropped)
                 loss += float(args["percep_loss_weight"]) * percep_loss
             else:
@@ -516,7 +526,6 @@ def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
             pert_grad = torch.sign(pert.grad)
 
             with torch.no_grad():
-
                 attn_map = attn_map - attn_lr * attn_grad
                 pert = pert - args["step"] * pert_grad
                 
@@ -526,28 +535,26 @@ def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
             pert = pert.detach().clone()
             pert.requires_grad = True
 
+            attn_map.grad = None
+            pert.grad = None
+
             # Reformulate the perturbed image and prepare to repeat. Detach from graph so we don't get double iteration
             new_pert = torch.clip(torch.multiply(attn_map, pert), -args["max_pert"], args["max_pert"])
-            cropped = cropped.detach().clone()
-            cropped = torch.clip(cropped + new_pert, min=-1.0, max=1.0)
-
+            #cropped = cropped.detach().clone()
+            #cropped = torch.clip(cropped + new_pert, min=-1.0, max=1.0)
             del loss, out_emb
     
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
-    # print_attn_map = attn_map.clone().detach().cpu().squeeze().permute(1, 2, 0).numpy()
-    # print_attn_map = 255 * (print_attn_map - np.min(print_attn_map)) / (np.max(print_attn_map) - np.min(print_attn_map))
-    # Image.fromarray(print_attn_map.astype(np.uint8)).save("../data/test/attn/map.jpg")
-
-
-    cropped = cropped.clone()
-    diff = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
-    cropped = torch.clip(orig_cropped + diff, min=-1.0, max=1.0)
+    # cropped = cropped.clone()
+    # diff = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
+    # cropped = torch.clip(orig_cropped + diff, min=-1.0, max=1.0)
     #cropped = cropped[0]
-    return new_pert.detach().clone().cpu().squeeze().permute(1, 2, 0).numpy()
+    print("DEBUG: new_pert has range", torch.min(new_pert), torch.max(new_pert))
+    return new_pert.detach().clone().cpu().squeeze().permute(1, 2, 0).numpy(), None
 
 def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
-    # Set up the necessary elements here and the parameters for the loss function
+# Set up the necessary elements here and the parameters for the loss function
     cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
     for cropped in cropped_list: cropped.requires_grad = True
 
@@ -560,25 +567,33 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
         loss_args["closest_emb"] = args["closest_emb"]
 
     # Initialize perturbation
-    pert = args["max_pert"] * 2*(torch.rand(cropped_list[0].size()) - .5)
+    pert = (2. / 255) * 2*(torch.rand(cropped_list[0].size()) - .5)
     pert.requires_grad = True
     pert = pert.to(device)
 
     # Two nested loops: One for iterations of the attack, the inner one for images in the cropped_list
     pbar = tqdm(total=args["iters"])
     start_loss = 0
+    # for cropped in cropped_list:
+    #     orig_cropped = cropped.clone()
+    #     for i in range(args["iters"]):
     for i in range(args["iters"]):
         for cropped in cropped_list:
+        
             loss = 0
 
             # Add the perturbation and get the new embedding
+             #NOTE: maybe this should come after pert application???
+
+            # Extract the landmarks for this clean cropped (112x112) image and apply stickers to it
+            #cropped = orig_cropped.clone()
             orig_cropped = cropped.clone()
+            if cropped.size() != pert.size(): continue # skip if the random size discrepancy bug pops up
             cropped = cropped + pert
             cropped = cropped.clone().detach()
             cropped.requires_grad = True
             out_emb = extractor(cropped)
-
-            #blur = cv2.GaussianBlur(cropped, (13, 13), 0)
+            out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
 
             # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
             if args["percep_loss"]:
@@ -589,7 +604,7 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
                 loss += loss_fn(out_emb, loss_args)
             loss.backward(retain_graph=False)
 
-            loss = loss / len(cropped_list) # normalize by num images
+            #loss = loss / len(cropped_list) # normalize by num images
 
             # Calculate loss with current image
             if i == 0:
@@ -607,7 +622,6 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
 
                 # Clip the perturbation to be within the viable range
                 pert = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
-
                 # Prepare pert for next iteration
                 pert = pert.detach().clone()
                 pert.requires_grad = True
@@ -618,4 +632,93 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
             torch.cuda.empty_cache()
 
     # Make sure perturbation is clipped and return perturbation
-    return pert[0].detach().clone().cpu().squeeze().permute(1, 2, 0).numpy()
+    return pert[0].detach().clone().cpu().squeeze().permute(1, 2, 0).numpy(), None
+
+
+def pgd_cloak_sticker(cropped_list, tgt_emb, extractor, loss_fn, device, args):
+    # Set up the necessary elements here and the parameters for the loss function
+    cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
+    for cropped in cropped_list: cropped.requires_grad = True
+
+    loss_args = {
+            "tgt_emb":tgt_emb,
+            "dist_func":args["dist_func"]
+            }
+
+    if args["loss_func_select"] == "triplet":
+        loss_args["closest_emb"] = args["closest_emb"]
+
+    # Initialize perturbation
+    pert = (2. / 255) * 2*(torch.rand(cropped_list[0].size()) - .5)
+    pert.requires_grad = True
+    pert = pert.to(device)
+
+    # First, if we're using stickers, create the stickers themselves
+    sticker_handler = StickerHandler(cropped, device)
+
+    # Two nested loops: One for iterations of the attack, the inner one for images in the cropped_list
+    pbar = tqdm(total=args["iters"])
+    start_loss = 0
+    for i in range(args["iters"]):
+        for cropped in cropped_list:
+            orig_cropped = cropped.clone()
+        
+        
+            loss = 0
+
+            # Add the perturbation and get the new embedding
+             #NOTE: maybe this should come after pert application???
+
+            # Extract the landmarks for this clean cropped (112x112) image and apply stickers to it
+            cropped = orig_cropped.clone()
+            cropped = sticker_handler.apply_stickers(cropped)
+            cropped = cropped + pert
+            if cropped.size() != pert.size(): continue
+            cropped = cropped.clone().detach()
+            cropped.requires_grad = True
+            out_emb = extractor(cropped)
+            out_emb = out_emb / torch.norm(out_emb, p=2, dim=1, keepdim=True)
+
+            #blur = cv2.GaussianBlur(cropped, (13, 13), 0)
+
+            # If we have a perceptual loss component, also add that to our loss calculation. Otherwise just do the normal loss
+            if args["percep_loss"]:
+                loss += loss_fn(out_emb, loss_args)
+                percep_loss = args["percep_loss"](cropped, orig_cropped)
+                loss += float(args["percep_loss_weight"]) * percep_loss
+            else:
+                loss += loss_fn(out_emb, loss_args)
+            loss.backward(retain_graph=False)
+
+            #loss = loss / len(cropped_list) # normalize by num images
+
+            # Calculate loss with current image
+            if i == 0:
+                start_loss = loss.item()
+            pbar.update(1)
+            pbar.set_postfix({'start_loss': start_loss, 'end_loss':loss.item()})
+
+            # Get the sign of the gradient
+            signed_grad = torch.sign(cropped.grad)
+
+            # Update pert according to current image, discarding cropped since we don't care
+            with torch.no_grad():
+                # Update cropped
+                cropped -= args["step"] * signed_grad
+
+                # If we have stickers, use the landmarks to extract their updated version
+                sticker_handler.extract_and_update_stickers(cropped, orig_cropped)
+
+                # Clip the perturbation to be within the viable range
+                pert = torch.clip(cropped - orig_cropped, min=-args["max_pert"], max=args["max_pert"])
+                # Prepare pert for next iteration
+                pert = pert.detach().clone()
+                pert.requires_grad = True
+
+            del loss, out_emb
+            cropped.grad = None
+            #cropped = cropped.detach().clone()
+            torch.cuda.empty_cache()
+
+    # Make sure perturbation is clipped and return perturbation
+    return pert[0].detach().clone().cpu().squeeze().permute(1, 2, 0).numpy(), sticker_handler

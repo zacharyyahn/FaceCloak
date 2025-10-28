@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -JFaceEval
-#SBATCH -N1 --gres=gpu:1 --ntasks-per-node=4 --mem-per-gpu=32G
+#SBATCH -N1 --gres=gpu:V100:1 --ntasks-per-node=4 --mem-per-gpu=32G
 #SBATCH -n4 -t16:00:00
 #SBATCH -oOUT_PATH
 
@@ -11,8 +11,8 @@ conda activate Face
 
 echo $CONDA_PREFIX
 
-DATASET_FILE="NONCLOAKED_DATASET_FILE/"
-CLOAK_FILE="CLOAKED_DATASET_FILE/"
+GALLERY_FILE="NONCLOAKED_DATASET_FILE/"
+PROBE_FILE="CLOAKED_DATASET_FILE/"
 
 
-python src/evaluate.py --dataset_file $DATASET_FILE --probe_file $CLOAK_FILE --num_probes 5000 --dataset_size 1.0 --gallery_size 5000 --cropped_im_size 112 --verbosity "none" --models MODEL_TO_EVAL --distance_function "l2"
+python src/evaluate.py --gallery_file $GALLERY_FILE --probe_file $PROBE_FILE --num_probes 2500 --dataset_size 1.0 --cropped_im_size 112 --verbosity "none" --models MODEL_TO_EVAL --distance_function "l2"

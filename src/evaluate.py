@@ -9,13 +9,12 @@ import torch
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--models", nargs="*", type=str, help="List of feature extractors to use.")
-parser.add_argument("--dataset_file", type=str, help="Path to dataset")
+parser.add_argument("--gallery_file", type=str, help="Path to dataset")
 parser.add_argument("--probe_file", type=str, help="Path to cloaked dataset")
 parser.add_argument("--num_probes", type=int, help="How many probe images to evaluate")
 parser.add_argument("--attack", action='store_true', help="Whether to evaluate on cloaked images")
 parser.add_argument("--num_to_evaluate", type=int, help="How many images to evaluate")
 parser.add_argument("--dataset_size", type=float, help="Proportion of evaluation dataset to use")
-parser.add_argument("--gallery_size", nargs="*", type=int, help="Number of images to compare to")
 parser.add_argument("--cropped_im_size", type=int, default=112, help="Size of cropped image")
 parser.add_argument("--verbosity", type=str, default="none", help="debugging verbosity")
 parser.add_argument("--distance_function", type=str, default="l2", help="Distance function, either l2 or cosine")
@@ -73,15 +72,11 @@ for model in args.models:
 mtcnn = MTCNN(image_size=args.cropped_im_size, device=device).to(device).eval()
 dist_func = distance_funcs[args.distance_function]
 
-evaluator = Evaluator(dataset_path=args.dataset_file, probe_path=args.probe_file, models=extractors, cropper=mtcnn, dataset_size=args.dataset_size, gallery_size=args.gallery_size, verbosity=args.verbosity, device=device, cropped_im_size=args.cropped_im_size, dist_func=dist_func)
+evaluator = Evaluator(gallery_path=args.gallery_file, probe_path=args.probe_file, models=extractors, cropper=mtcnn, dataset_size=args.dataset_size, verbosity=args.verbosity, device=device, cropped_im_size=args.cropped_im_size, dist_func=dist_func)
 
 outs = {model: [] for model in args.models}
-for gallery_size in args.gallery_size:
-    print("----------- GALLERY SIZE:",gallery_size,"-----------")
-    gallery_size = int(gallery_size)
-    evaluator.gallery_size = gallery_size
-    this_out = evaluator.evaluate_all(num_images=args.num_probes)
-    for model, val in this_out.items():
-        outs[model].append(val)
+this_out = evaluator.evaluate_all()
+for model, val in this_out.items():
+    outs[model].append(val)
 for model, l in outs.items():
     print(model, "accs:", l)
