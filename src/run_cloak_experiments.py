@@ -3,31 +3,38 @@ import sys
 import subprocess
 from itertools import product
 
+dataset = "privacy_celeb"
+
 distances = ["cosine"]
 cloak_funcs = ["pgd_cloak"]
-multi_cloak_funcs = ["pgd_cloak_multi"]
+multi_cloak_funcs = ["afog_cloak_multi"]
+do_stickers = ["1"]
+do_highpass = ["1"]
 multi_losses = ["triplet"]
 losses = ["triplet"]
 iterations = ["0"]
 multi_iterations = ["10"]
 gen_iterations = ["0"]
 gen_lr = ["0.0"]
-models = ["ArcFaceR100"]
-probe_dataset = ["privacy_common/probe"]
-gallery_dataset = ["privacy_common/gallery"]
+models = ["ArcFace"]
+probe_dataset = [f"{dataset}/figure"]
+gallery_dataset = [f"{dataset}/probe"]
 pert_steps = ["2"]
 finetune_perts = ["0"]
-multi_perts = ["2"]
+multi_perts = ["8"]
 modes = ["multi"]
 percep_funcs = ["dssim"]
 percep_weights = ["0.0"]
-num_images_to_generate = ["4"]
+num_images_to_generate = ["8"]
+n_to_eval = ["5"]
 notes = ["none"]
 
-for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, note in product(*[
+for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, n_eval, note in product(*[
     distances, 
     cloak_funcs, 
     multi_cloak_funcs,
+    do_stickers,
+    do_highpass,
     multi_losses, 
     losses,
     iterations,
@@ -44,16 +51,16 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_d
     percep_funcs,
     percep_weights,
     num_images_to_generate,
+    n_to_eval,
     notes
     ]):
 
     template = open("src/cloak_template.txt",'r')
     template = template.read()
-    #save_line = f"cloak_{mcf}_dssim_{pc_w}_pert_{pert_steps}_{num_ims}ims"
-    #save_line = f"cloak_afog_{mul_perts}_32_pc_w_{pc_w}_{num_ims}ims"
-    save_line = f"test_no_resize"
-    #save_line = f"multi_fixes_test"
-    #save_line = f"afog_multi_test_4ims"
+    #save_line = f"cloak_{dataset}_{model}_{mcf}_sticker_{stickers}_highpass_{highpass}_dssim_{pc_w}_max_pert_{mul_perts}_pert_step_{pert_steps}_ims_{num_ims}_{note}"
+    save_line = "cloak_figures_16"
+    #save_line = f"cloak_{model}_{mcf}_ims_{num_ims}_dssim_{pc_w}"
+    #save_line = "test_highpass_sticker"
     # if mode == "multi_finetune":
     #     save_line = f"cloak_{data}_{mode}_{model}_{dist}_{mcf}_{mul_loss}_{mul_itr}_{mul_perts}_{cf}_{loss}_{itr}_{ft_perts}_{pert_steps}_{pc_f}_{pc_w}_{note}"
     #     print("save line is:", save_line)
@@ -72,6 +79,8 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_d
     template = template.replace("DISTANCE",dist)
     template = template.replace("CF",cf)
     template = template.replace("MULTI_CLOAK_FUNC",mcf)
+    template = template.replace("DO_STICKERS",stickers)
+    template = template.replace("DO_HIGHPASS",highpass)
     template = template.replace("LOSS_TYPE",loss)
     template = template.replace("LOSS_MULTI_TYPE", mul_loss)
     template = template.replace("NUM_ITERATIONS", itr)
@@ -89,6 +98,7 @@ for dist, cf, mcf, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_d
     template = template.replace("SIM_FUNC", pc_f)
     template = template.replace("SIM_VALUE", pc_w)
     template = template.replace("NITG", num_ims)
+    template = template.replace("N_TO_EVAL", n_eval)
     f.write(template)
     f.close()
 

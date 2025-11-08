@@ -3,6 +3,7 @@
 #SBATCH --gres=gpu:H200:1 --mem-per-gpu=144G
 #SBATCH -t16:00:00
 #SBATCH -oOUTPUT_PATH
+#SBATCH --exclude=atl1-1-03-017-23-0
 
 module load anaconda3
 conda init
@@ -42,6 +43,8 @@ python src/cloak.py \
         --distance_function "DISTANCE" \
         --cloak_function "CF" \
         --multi_cloak_function "MULTI_CLOAK_FUNC" \
+        --do_highpass "DO_HIGHPASS" \
+        --do_stickers "DO_STICKERS" \
         --cloak_loss "LOSS_TYPE" \
         --multi_cloak_loss "LOSS_MULTI_TYPE" \
 	--cloak_percep_loss SIM_FUNC \
@@ -58,6 +61,8 @@ python src/cloak.py \
         --mode "ATTACK_MODE" \
         --num_images_to_gen NITG \
         --gen_save_path "SAVE_GEN_PATH" \
+        --n_to_eval "N_TO_EVAL" \
 
 # rm -rf SAVE_GEN_PATH
+# rm -rf SAVE_PATH
 
