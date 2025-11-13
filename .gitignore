@@ -25,6 +25,8 @@ src/arc2face/encoder/*
 *.zip
 *.safetensors
 
+api/
+
 # C extensions
 *.so
 

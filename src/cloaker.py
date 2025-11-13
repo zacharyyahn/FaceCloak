@@ -48,7 +48,7 @@ os.environ['TORCH_USE_CUDA_DSA'] = "1"
 # NOTE: Fawkes used a different model/dataset, and they also did some tanh normalization on the images. See differentiator file in the repo or the paper. They also did not clip images.
 
 class Cloaker():
-    def __init__(self, probe_dataset_path, gallery_dataset_path, extractor, cropper, batch_size, cropped_im_size, device, verbosity, distance_function, cloak_function, multi_cloak_function, do_stickers, do_highpass, cloak_loss, multi_cloak_loss, cloak_function_iters, multi_cloak_function_iters, cloak_function_step, cloak_function_max_pert, multi_cloak_function_max_pert, cloak_function_lr, loss_func_select, multi_loss_func_select, norm_function, reverse_norm_function, percep_loss, percep_loss_weight, num_gen_iterations, gen_learning_rate, n_to_eval, mode, num_images_to_generate):
+    def __init__(self, probe_dataset_path, gallery_dataset_path, extractor, cropper, batch_size, cropped_im_size, device, verbosity, distance_function, cloak_function, multi_cloak_function, do_stickers, do_highpass, cloak_loss, multi_cloak_loss, cloak_function_iters, multi_cloak_function_iters, cloak_function_step, cloak_function_max_pert, multi_cloak_function_max_pert, cloak_function_lr, loss_func_select, multi_loss_func_select, norm_function, reverse_norm_function, percep_loss, percep_loss_weight, num_gen_iterations, gen_learning_rate, n_to_eval, mode, num_images_to_generate, use_real):
         self.probe_dataset_path = probe_dataset_path
         self.probe_dataset = FaceDataset(probe_dataset_path, num_images=len(os.listdir(probe_dataset_path)))
         self.gallery_dataset = FaceDataset(gallery_dataset_path, num_images=len(os.listdir(gallery_dataset_path)))
@@ -74,6 +74,7 @@ class Cloaker():
         self.num_gen_iterations = num_gen_iterations
         self.num_images_to_generate = num_images_to_generate
         self.n_to_eval = n_to_eval
+        self.use_real = use_real
 
         if self.mode == "multi_finetune" or self.mode == "minmax" or self.mode == "multi_minmax" or self.mode == "multi":
             #self.gen_portrait = GenPortrait()
@@ -407,6 +408,8 @@ class Cloaker():
             best_target.append((self.gallery_paths[top_n_indices[i]], top_n_dists[i].item()))
             num_found += 1
 
+        print("Closest is", best_target, " and has distance:", sorted_dists[0])
+
 
         if self.verbosity == "log": print("Target for", path, "is", best_target)
         end = time.perf_counter()
@@ -444,6 +447,8 @@ class Cloaker():
         top_dist = sorted_dists[0]
 
         best_target = self.gallery_paths[top_index]
+
+        print("Farthest is", best_target, " and has distance:", sorted_dists[0])
 
 
         if self.verbosity == "log": print("Target for", path, "is", best_target)
@@ -871,8 +876,6 @@ class Cloaker():
         else:
             these_paths = do_paths
 
-        generated_image_paths = []
-
         # Now call on every path we want to 
         for path in these_paths:
             num += 1
@@ -888,12 +891,8 @@ class Cloaker():
 
             # Read in a given image from the real dataset. If we already have a mask for it, apply the mask, otherwise go to the logic that generates the mask.
             name = os.path.basename(path)[:os.path.basename(path).find("_")]
-            file_name = os.path.basename(path)[:os.path.basename(path).find(".")]
             
             image = self.images[path]
-
-            # Track the paths of the saved images
-            gen_paths = []
 
             try:
                 # Fetch the mask
@@ -912,73 +911,13 @@ class Cloaker():
                 # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
                 # print("DEBUG: Detector model:", self.app.models['detection'])
 
-                faces = self.app.get(image_to_gen)
-                if faces != []:
-                    faces = sorted(faces, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1]  # select largest face (if more than one detected)
-                    id_emb = torch.tensor(faces['embedding'], dtype=torch.float16)[None].cuda()
+                # Track the paths of the saved images
+                gen_paths = []
+
+                if self.use_real:
+                    gen_paths = self.use_real_images(path)
                 else:
-                    if self.verbosity == "error":
-                        print(f"!!!!!!ERROR on app face recog for image {path}, switching to second arcface.")
-                    
-                    _ = self.get_one_embed(path, self.extractor)
-                    crop = self.cropped_images[path]
-                    crop = F.interpolate(
-                        crop, 
-                        size=(self.cropped_im_size, self.cropped_im_size),
-                        mode="bilinear", 
-                        align_corners=False
-                    )
-                    crop = (crop.squeeze().permute(1, 2, 0).detach().cpu().numpy() + 1) * 127.5
-                    arcface_model = self.app.models['recognition']
-                    id_emb = torch.tensor(arcface_model.get_feat(crop), dtype=torch.float16).cuda()
-
-                    #crop = self.norm_function(image)
-                    #crop = torch.tensor(crop.transpose((2, 0, 1)), dtype=torch.float16).unsqueeze(0).to(self.device)
-                    #crop = F.interpolate(crop, size=(self.cropped_im_size, self.cropped_im_size), mode="bilinear", align_corners=False)
-                    #id_emb = torch.tensor(self.backup_arcface_model(crop), dtype=torch.float16).detach().clone()
-                id_emb = id_emb/torch.norm(id_emb, dim=1, keepdim=True) 
-                
-                # Project the image embedding into the CLIP prompt embedding
-                id_emb = project_face_embs(self.pipeline, id_emb).detach().clone()   # ensure no history
-                id_emb.requires_grad_(True)
-                # Generate num_generate_images fake images of the person and save them
-                outputs = []
-
-                start = time.perf_counter()
-                for _ in range(self.num_images_to_generate):
-                    images, pil_images = pipeline_forward_with_grad(
-                        self.pipeline,
-                        prompt_embeds=id_emb,
-                        num_inference_steps=25,
-                        guidance_scale=3.0,
-                        height=512,
-                        width=512,
-                    )
-                    # need to cast pil image to proper range
-                    del images
-                    outputs.append((255 * pil_images).astype(np.uint8))
-                
-                end = time.perf_counter()
-                if self.verbosity == "error": print(f"Generating {self.num_images_to_generate} images took {end-start:4f} seconds")
-                #outputs.append(output[0]) #comment out this line if not doing poses
-
-                # Save a 512x512 version of the image for use in alternating with deepfakes
-                # big_image = cv2.resize(image, (512,512), cv2.INTER_CUBIC)
-                # big_image = cv2.cvtColor(big_image, cv2.COLOR_RGB2BGR)
-                # cv2.imwrite(gen_save_path + "/" + file_name + "_big.png", big_image)
-                # gen_paths.append(gen_save_path + "/" + file_name + "_big.png") #interleave with original image but upscaled
-                
-                # Save the paths and the images. We need to save the paths in a list so that the code can use them elsewhere
-                start = time.perf_counter()
-                for i, im in enumerate(outputs):
-                    gen_paths.append(gen_save_path + "/" + file_name + "_" + str(i) + ".png")
-                    if gen_save_path != "/":
-                        Image.fromarray(im).save(gen_save_path + "/" + file_name + "_" + str(i) + ".png")
-                        self.images[gen_save_path + "/" + file_name + "_" + str(i) + ".png"] = im
-                end = time.perf_counter()
-                if self.verbosity == "error": print(f"Saving images took {end-start:4f} seconds")
-                
-                # Add the orig to gen_paths so that it is also in the mix
+                    gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
                 gen_paths.append(path)
 
                 # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
@@ -1295,7 +1234,7 @@ class Cloaker():
     # Evaluate the given image on every eval model and return the accuracies
     def eval_on_all_models(self, path, n):
         # CelebA only has 1 for each identity
-        if self.probe_dataset_path == "data/celeba/probe":
+        if self.probe_dataset_path in ["data/celeba/probe", "data/celeba_small/probe"]:
             num_comparisons = 1
         else: # All others have 4 others for each identity
             num_comparisons = 4
@@ -1316,7 +1255,92 @@ class Cloaker():
             print("Score:", results[model])
         return results
 
+    def generate_images(self, image_to_gen, path, gen_save_path):
+        gen_paths = []
+        file_name = os.path.basename(path)[:os.path.basename(path).find(".")]
 
+        faces = self.app.get(image_to_gen)
+        if faces != []:
+            faces = sorted(faces, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1]  # select largest face (if more than one detected)
+            id_emb = torch.tensor(faces['embedding'], dtype=torch.float16)[None].cuda()
+        else:
+            if self.verbosity == "error":
+                print(f"!!!!!!ERROR on app face recog for image {path}, switching to second arcface.")
+            
+            _ = self.get_one_embed(path, self.extractor)
+            crop = self.cropped_images[path]
+            crop = F.interpolate(
+                crop, 
+                size=(self.cropped_im_size, self.cropped_im_size),
+                mode="bilinear", 
+                align_corners=False
+            )
+            crop = (crop.squeeze().permute(1, 2, 0).detach().cpu().numpy() + 1) * 127.5
+            arcface_model = self.app.models['recognition']
+            id_emb = torch.tensor(arcface_model.get_feat(crop), dtype=torch.float16).cuda()
+
+            #crop = self.norm_function(image)
+            #crop = torch.tensor(crop.transpose((2, 0, 1)), dtype=torch.float16).unsqueeze(0).to(self.device)
+            #crop = F.interpolate(crop, size=(self.cropped_im_size, self.cropped_im_size), mode="bilinear", align_corners=False)
+            #id_emb = torch.tensor(self.backup_arcface_model(crop), dtype=torch.float16).detach().clone()
+        id_emb = id_emb/torch.norm(id_emb, dim=1, keepdim=True) 
+        
+        # Project the image embedding into the CLIP prompt embedding
+        id_emb = project_face_embs(self.pipeline, id_emb).detach().clone()   # ensure no history
+        id_emb.requires_grad_(True)
+        # Generate num_generate_images fake images of the person and save them
+        outputs = []
+
+        start = time.perf_counter()
+        for _ in range(self.num_images_to_generate):
+            images, pil_images = pipeline_forward_with_grad(
+                self.pipeline,
+                prompt_embeds=id_emb,
+                num_inference_steps=25,
+                guidance_scale=3.0,
+                height=512,
+                width=512,
+            )
+            # need to cast pil image to proper range
+            del images
+            outputs.append((255 * pil_images).astype(np.uint8))
+        
+        end = time.perf_counter()
+        if self.verbosity == "error": print(f"Generating {self.num_images_to_generate} images took {end-start:4f} seconds")
+        #outputs.append(output[0]) #comment out this line if not doing poses
+
+        # Save a 512x512 version of the image for use in alternating with deepfakes
+        # big_image = cv2.resize(image, (512,512), cv2.INTER_CUBIC)
+        # big_image = cv2.cvtColor(big_image, cv2.COLOR_RGB2BGR)
+        # cv2.imwrite(gen_save_path + "/" + file_name + "_big.png", big_image)
+        # gen_paths.append(gen_save_path + "/" + file_name + "_big.png") #interleave with original image but upscaled
+        
+        # Save the paths and the images. We need to save the paths in a list so that the code can use them elsewhere
+        start = time.perf_counter()
+        for i, im in enumerate(outputs):
+            gen_paths.append(gen_save_path + "/" + file_name + "_" + str(i) + ".png")
+            if gen_save_path != "/":
+                Image.fromarray(im).save(gen_save_path + "/" + file_name + "_" + str(i) + ".png")
+                self.images[gen_save_path + "/" + file_name + "_" + str(i) + ".png"] = im
+        end = time.perf_counter()
+        if self.verbosity == "error": print(f"Saving images took {end-start:4f} seconds")
+
+        return gen_paths
+    
+    def use_real_images(self, path):
+        count = 8
+        paths = []
+        dataset_dir = os.path.dirname(self.probe_dataset_path)
+        for im in os.listdir(dataset_dir + "/train"):
+            name = im[:im.find("_")]
+            path_name = os.path.basename(path)[:os.path.basename(path).find("_")]
+            if path_name == name:
+                paths.append(dataset_dir + "/train/" + im)
+                count -= 1
+                if count <= 0:
+                    return paths
+        
+        return paths
 
     def apply_defense(self):
         None

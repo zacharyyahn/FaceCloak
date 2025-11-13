@@ -556,7 +556,8 @@ def pgd_cloak(cropped, tgt_emb, extractor, loss_fn, device, args):
 
 def afog_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
     cropped_list = [cropped.detach().clone().to(device) for cropped in cropped_list]
-    for cropped in cropped_list: cropped.requires_grad = True
+    for cropped in cropped_list: 
+        cropped.requires_grad = True
     attn_lr = 10.0
 
     # Make sure cropped will receive gradients as a fresh leaf tensor
@@ -768,7 +769,7 @@ def pgd_cloak_multi(cropped_list, tgt_emb, extractor, loss_fn, device, args):
         loss_args["closest_emb"] = args["closest_emb"]
 
     # Initialize perturbation
-    pert = (2. / 255) * 2*(torch.rand(cropped_list[0].size()) - .5)
+    pert = (2. / 255) * 2*(torch.rand(cropped.size()) - .5)
     pert.requires_grad = True
     pert = pert.to(device)
 

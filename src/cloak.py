@@ -45,6 +45,7 @@ parser.add_argument("--gen_save_path", type=str, default="/", help="Path to save
 parser.add_argument("--num_gen_iterations", type=int, default=5, help="Gen iterations when using minmax")
 parser.add_argument("--gen_learning_rate", type=float, default=0.1, help="Default learning rate for generating images")
 parser.add_argument("--num_images_to_gen", type=int, default=4)
+parser.add_argument("--use_real", type=int, default=0, help="Whether to use real images for training instead of synthetic if they're available")
 parser.add_argument("--n_to_eval", type=int, default=1, help="Top-n to images to eval over")
 args = parser.parse_args()
 
@@ -188,6 +189,7 @@ cloaker = Cloaker(
         gen_learning_rate = args.gen_learning_rate,
         num_images_to_generate=args.num_images_to_gen,
         n_to_eval=args.n_to_eval,
+        use_real= int(args.use_real) == 1,
         mode=args.mode,
         )
 

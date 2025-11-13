@@ -12,7 +12,7 @@ class HighpassHandler():
     def __init__(self, input_image, device):
         self.device = device
 
-        self.HIGHPASS_MAX = 16 / 255.
+        self.HIGHPASS_MAX = 32 / 255.
 
         lowpass = torchvision.transforms.functional.gaussian_blur(input_image, kernel_size=23, sigma=3.0)
         highpass = input_image - lowpass.squeeze()

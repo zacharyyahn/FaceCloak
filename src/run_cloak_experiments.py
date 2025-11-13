@@ -10,18 +10,19 @@ cloak_funcs = ["pgd_cloak"]
 multi_cloak_funcs = ["afog_cloak_multi"]
 do_stickers = ["1"]
 do_highpass = ["1"]
+use_real = ["0"]
 multi_losses = ["triplet"]
 losses = ["triplet"]
 iterations = ["0"]
 multi_iterations = ["10"]
 gen_iterations = ["0"]
 gen_lr = ["0.0"]
-models = ["ArcFace"]
+models = ["IncRes152"]
 probe_dataset = [f"{dataset}/figure"]
 gallery_dataset = [f"{dataset}/probe"]
 pert_steps = ["2"]
 finetune_perts = ["0"]
-multi_perts = ["8"]
+multi_perts = ["12"]
 modes = ["multi"]
 percep_funcs = ["dssim"]
 percep_weights = ["0.0"]
@@ -29,7 +30,7 @@ num_images_to_generate = ["8"]
 n_to_eval = ["5"]
 notes = ["none"]
 
-for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, n_eval, note in product(*[
+for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, n_eval, use_real, note in product(*[
     distances, 
     cloak_funcs, 
     multi_cloak_funcs,
@@ -52,13 +53,18 @@ for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, ge
     percep_weights,
     num_images_to_generate,
     n_to_eval,
+    use_real,
     notes
     ]):
+    # regular inc_res_test is privacy_common, which we hope will be high because no pert
+    # inc_res_test2 is celeba_small which we hope will be high because no pert
+    # inc_res_test3 is celeba_small which we hope will be low because pert (all three have updated scaling)
 
     template = open("src/cloak_template.txt",'r')
     template = template.read()
     #save_line = f"cloak_{dataset}_{model}_{mcf}_sticker_{stickers}_highpass_{highpass}_dssim_{pc_w}_max_pert_{mul_perts}_pert_step_{pert_steps}_ims_{num_ims}_{note}"
-    save_line = "cloak_figures_16"
+    save_line = f"privacy_celeb_figure"
+    #save_line = f"inc_res_test_{mul_perts}_{mcf}"
     #save_line = f"cloak_{model}_{mcf}_ims_{num_ims}_dssim_{pc_w}"
     #save_line = "test_highpass_sticker"
     # if mode == "multi_finetune":
@@ -99,6 +105,7 @@ for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, ge
     template = template.replace("SIM_VALUE", pc_w)
     template = template.replace("NITG", num_ims)
     template = template.replace("N_TO_EVAL", n_eval)
+    template = template.replace("USE_REAL", use_real)
     f.write(template)
     f.close()
 

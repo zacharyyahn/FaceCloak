@@ -62,7 +62,8 @@ python src/cloak.py \
         --num_images_to_gen NITG \
         --gen_save_path "SAVE_GEN_PATH" \
         --n_to_eval "N_TO_EVAL" \
+        --use_real "USE_REAL" \
 
-# rm -rf SAVE_GEN_PATH
+rm -rf SAVE_GEN_PATH
 # rm -rf SAVE_PATH
 

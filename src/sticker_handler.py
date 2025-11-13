@@ -16,7 +16,7 @@ class StickerHandler():
         image_size_x = input_image.size()[-1]
         image_size_y = input_image.size()[-2]
 
-        self.STICKER_MAX = 16 / 255.
+        self.STICKER_MAX = 32 / 255.
 
         # Get initial landmarks
         input_image = input_image.clone()
