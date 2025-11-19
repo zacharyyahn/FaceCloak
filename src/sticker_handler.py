@@ -1,4 +1,6 @@
-# Class for handling creation, application, and updating of stickers
+"""
+Class for handling creation, application, and updating of stickers
+"""
 
 import torch
 import numpy as np
@@ -12,7 +14,6 @@ class StickerHandler():
     def __init__(self, input_image, device):
         self.sticker_model = MTCNN(image_size=112, device=device).to(device).eval()
         self.device = device
-        print("Doing stickers now")
         image_size_x = input_image.size()[-1]
         image_size_y = input_image.size()[-2]
 
@@ -51,15 +52,14 @@ class StickerHandler():
     # Apply the stickers to the given input image and return the masked image
     # NOTE: In future iterations it may be beneficial to first calculate overlap between stickers and then apply them to not double up some pixels.
     def apply_stickers(self, input_image, mode="crop"):
+        
         # If it's possible to find stickers then apply them
         if mode == "crop":
             input_image = input_image.clone()
             resized_image = F.interpolate(input_image, (112, 112)).squeeze().permute(1, 2, 0)
-            #print("During apply mtcnn sees image of shape", resized_image.size())
         else:
             input_image = torch.tensor(input_image).permute(2, 0, 1).unsqueeze(0).to(self.device).float()
             resized_image = F.interpolate(input_image, (112, 112)).squeeze().permute(1, 2, 0)
-            #print("During apply mtcnn sees image of shape", resized_image.size())        
 
         image_size_x = input_image.size()[-1]
         image_size_y = input_image.size()[-2]
@@ -83,9 +83,6 @@ class StickerHandler():
                 right_eye_x - int(self.EYE_BOX_WIDTH / 2):right_eye_x + int(self.EYE_BOX_WIDTH / 2)
                 ] += self.right_eye_sticker * (1.0 if mode == "crop" else 255.0)
         except:
-            # print("right eye shape: ", self.right_eye_sticker.size())
-            # print("eye width: ", self.EYE_BOX_WIDTH)
-            # print("eye height: ", self.EYE_BOX_HEIGHT)
             pass
             
         # Add the left eye sticker
@@ -95,9 +92,6 @@ class StickerHandler():
                 left_eye_x - int(self.EYE_BOX_WIDTH / 2):left_eye_x + int(self.EYE_BOX_WIDTH / 2)
                 ] += self.left_eye_sticker * (1.0 if mode == "crop" else 255.0)
         except:
-            # print("left eye shape: ", self.left_eye_sticker.size())
-            # print("eye width: ", self.EYE_BOX_WIDTH)
-            # print("eye height: ", self.EYE_BOX_HEIGHT)
             pass
             
         # Add the nose sticker
@@ -107,9 +101,6 @@ class StickerHandler():
                 nose_x - int(self.NOSE_BOX_WIDTH / 2):nose_x + int(self.NOSE_BOX_WIDTH / 2)
                 ] += self.nose_sticker * (1.0 if mode == "crop" else 255.0)
         except:
-            # print("nose shape: ", self.nose_sticker.size())
-            # print("nose widht: ", self.NOSE_BOX_WIDTH)
-            # print("nose height: ", self.NOSE_BOX_HEIGHT)
             pass
             
         # Add the mouth sticker
@@ -119,9 +110,6 @@ class StickerHandler():
                 mouth_x - int(self.MOUTH_BOX_WIDTH / 2):mouth_x + int(self.MOUTH_BOX_WIDTH / 2)
                 ] += self.mouth_sticker * (1.0 if mode == "crop" else 255.0)
         except:            
-            # print("mouth shape: ", self.mouth_sticker.size())
-            # print("mouth width: ", self.MOUTH_BOX_WIDTH)
-            # print("mouth height: ", self.MOUTH_BOX_HEIGHT)
             pass
 
         # Make sure pert is in the suitable range

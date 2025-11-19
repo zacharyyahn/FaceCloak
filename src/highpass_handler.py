@@ -1,4 +1,6 @@
-# Class for handling creation, application, and updating of highpass filter
+"""
+Class for handling creation, application, and updating of highpass filter
+"""
 
 import torch
 import numpy as np
@@ -24,7 +26,6 @@ class HighpassHandler():
         self.highpass_pert.to(device)
 
     # Apply the stickers to the given input image and return the masked image
-    # NOTE: In future iterations it may be beneficial to first calculate overlap between stickers and then apply them to not double up some pixels.
     def apply_highpass(self, input_image, mode="crop"):
         if mode == "crop":
             input_image = input_image.clone()

@@ -1,39 +1,34 @@
-import torch
+"""
+This file defines the cloaker class, which contains the main logic for cloaking images.
+"""
+
+
 import torch
 import cv2
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import sys
 import yaml
-import math
 import warnings
 from facedataset import FaceDataset
 from torch.utils.data import DataLoader
-import random
 import time
 from math import sqrt, log10
-from AMTGAN.setup import setup_config, setup_argparser
 from AMTGAN.backbone import Inference, PostProcess, get_config
 from torchvision import transforms as trans
-from cloak_functions import pgd_cloak
 from skimage.metrics import structural_similarity
 from AMTGAN.assets.models.facenet import InceptionResnetV1
 from AMTGAN.assets.models.ir152 import IR_152, IR_SE_50
 from AMTGAN.assets.models.irse import MobileFaceNet
-#from facechain.facechain.inference_fact import GenPortrait
 import torch.nn.functional as F
 from arc2face.Arc2Face.arc2face import CLIPTextModelWrapper, project_face_embs
-import gc
-from PIL import ImageOps
 from utils import pipeline_forward_with_grad
 from diffusers import StableDiffusionPipeline, UNet2DConditionModel, DPMSolverMultistepScheduler
 from insightface.app import FaceAnalysis
 import onnxruntime as ort
 from PIL import Image
 from insightface_code.recognition.arcface_torch.backbones import get_model
-from blazeface.blazeface import BlazeFace
 from advcloak.model_irse import IR_50
 from advcloak.ser50_webface_soft import SER50WebfaceSoft
 from advcloak.m1_webface_soft import M1WebfaceSoft
@@ -41,8 +36,6 @@ from advcloak.i1_webface_soft import I1WebfaceSoft
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
-
-# NOTE: Fawkes used a different model/dataset, and they also did some tanh normalization on the images. See differentiator file in the repo or the paper. They also did not clip images.
 
 class Cloaker():
     def __init__(self, probe_dataset_path, gallery_dataset_path, extractor, cropper, batch_size, cropped_im_size, device, verbosity, distance_function, cloak_function, multi_cloak_function, do_stickers, do_highpass, cloak_loss, multi_cloak_loss, cloak_function_iters, multi_cloak_function_iters, cloak_function_step, cloak_function_max_pert, multi_cloak_function_max_pert, cloak_function_lr, loss_func_select, multi_loss_func_select, norm_function, reverse_norm_function, percep_loss, percep_loss_weight, num_gen_iterations, gen_learning_rate, n_to_eval, mode, num_images_to_generate, use_real):
@@ -73,8 +66,9 @@ class Cloaker():
         self.n_to_eval = n_to_eval
         self.use_real = use_real
 
-        if self.mode == "multi_finetune" or self.mode == "minmax" or self.mode == "multi_minmax" or self.mode == "multi":
-            #self.gen_portrait = GenPortrait()
+        if self.mode == "multi_finetune" or self.mode == "multi":
+            
+            # Build the synthetic image generation model from arc2face
             base_model = 'stable-diffusion-v1-5/stable-diffusion-v1-5'
             encoder = CLIPTextModelWrapper.from_pretrained(
                 "src/arc2face/encoder", torch_dtype=torch.float16
@@ -93,7 +87,6 @@ class Cloaker():
             )
             pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
             pipeline.enable_attention_slicing()
-            #pipeline.enable_model_cpu_offload()
             self.pipeline = pipeline.to(device=self.device, dtype=torch.float16)
 
             # All of this is to try to stop annoying ONNX log attacks
@@ -103,18 +96,11 @@ class Cloaker():
             os.environ["ORT_DISABLE_GPU"] = "1"
             ort.set_default_logger_severity(4)  # 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
 
-            # so = ort.SessionOptions()
-            # so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL  # optional, forces single-thread
-            # so.intra_op_num_threads = 1
-            # so.inter_op_num_threads = 1
-            
-            # This flag prevents ORT from messing with thread affinity
-            # so.add_session_config_entry("session.set_denormal_as_zero", "1")
-            # so.add_session_config_entry("session.disable_prepacking", "1")
-
+            # Declare a face extractor that works with arc2face
             self.app = FaceAnalysis(name='antelopev2', root='src/arc2face', providers=['CUDAExecutionProvider']) #sess_options=so)
             self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.5) # was 640, 640
 
+            # Use a different model in case the FaceAnalysis one fails
             self.backup_arcface_model = get_model("r100", fp16=False)
             self.backup_arcface_model.load_state_dict(torch.load("model_checkpoints/arcface_r100_ms1mv3.pth", map_location=self.device))
             self.backup_arcface_model.eval().to(device=self.device, dtype=torch.float16)
@@ -131,6 +117,7 @@ class Cloaker():
         irse50 = IR_SE_50((112, 112))
         mf = MobileFaceNet(512)
         
+        # Load in the state dicts
         arcface.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-ArcFace-casia/Backbone_IR_50_Epoch_73_Batch_138000_Time_2020-05-07-23-48_checkpoint.pth", map_location=self.device))
         cosface.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-CosFace-casia/Backbone_IR_50_Epoch_74_Batch_140000_Time_2020-05-27-21-38_checkpoint.pth", map_location=self.device))
         softmax.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-Softmax-casia/Backbone_IR_50_Epoch_94_Batch_180000_Time_2020-03-30-01-55_checkpoint.pth", map_location=self.device))
@@ -150,6 +137,7 @@ class Cloaker():
         irse50.eval().to(self.device)
         mf.eval().to(self.device)
 
+        # The full list of models. Any of these can also be used as the extractor
         self.eval_models = {
             "ArcFace":arcface,
             "CosFace":cosface,
@@ -165,29 +153,29 @@ class Cloaker():
         
         # This will be passed to the cloaking function to provide additional arguments
         self.cloak_func_args = {
-                "iters":cloak_function_iters,
-                "step":cloak_function_step,
-                "max_pert":cloak_function_max_pert,
-                "lr":cloak_function_lr,
-                "dist_func":distance_function,
-                "percep_loss":percep_loss,
-                "loss_func_select":loss_func_select,
-                "percep_loss_weight":percep_loss_weight
+            "iters":cloak_function_iters,
+            "step":cloak_function_step,
+            "max_pert":cloak_function_max_pert,
+            "lr":cloak_function_lr,
+            "dist_func":distance_function,
+            "percep_loss":percep_loss,
+            "loss_func_select":loss_func_select,
+            "percep_loss_weight":percep_loss_weight
         }
 
         # This will be passed to the multi-cloaking function to provide additional arguments
         self.multi_cloak_func_args = {
-                "iters":multi_cloak_function_iters,
-                "single_iters":cloak_function_iters,
-                "step":cloak_function_step,
-                "max_pert":multi_cloak_function_max_pert,
-                "lr":cloak_function_lr,
-                "dist_func":distance_function,
-                "percep_loss":percep_loss,
-                "loss_func_select":multi_loss_func_select,
-                "percep_loss_weight":percep_loss_weight,
-                "do_highpass":do_highpass,
-                "do_stickers":do_stickers,
+            "iters":multi_cloak_function_iters,
+            "single_iters":cloak_function_iters,
+            "step":cloak_function_step,
+            "max_pert":multi_cloak_function_max_pert,
+            "lr":cloak_function_lr,
+            "dist_func":distance_function,
+            "percep_loss":percep_loss,
+            "loss_func_select":multi_loss_func_select,
+            "percep_loss_weight":percep_loss_weight,
+            "do_highpass":do_highpass,
+            "do_stickers":do_stickers,
         }
     
         # Map of each path to a face box
@@ -321,9 +309,8 @@ class Cloaker():
                 if self.verbosity == "error": print("ERROR reading in images:", e)
 
         self.stacked_gallery_embeds = {model: torch.stack(gallery_embs[model]) for model in self.eval_models}
+    
     # Get the embeddings of just one image
-    import torch
-
     @torch.no_grad()
     def get_one_embed(self, path, model):
         try:
@@ -332,9 +319,9 @@ class Cloaker():
             if self.verbosity == "log":
                 print("Did not find embedding for", path)
 
-        # ---- Preprocess image so that face crop = 112x112 ----
-        #if self.images[path].shape[0] != 112:
+        # Preprocess image so that face crop = 112x112
         im_resized, boxes_resized = self.preprocess_image_for_user(path)
+        
         # Parse box coordinates
         xmin = int(boxes_resized[0])
         ymin = int(boxes_resized[1])
@@ -364,33 +351,24 @@ class Cloaker():
         # Cache and return
         self.embeds[model][path] = embed.cpu()
         return embed
-
-
-        
+  
     # Get the maximally similar image in a pool
     @torch.no_grad()
     def get_closest(self, path, model, no_self=False, n=1):
         start = time.perf_counter()
-        #try:
-        this_embed = self.get_one_embed(path, model)
-        # Check if the embedding is None
-        #     try:
-        #         if this_embed == None:
-        #             if self.verbosity == "error": 
-        #                 print("Cannot find target for path", path)
-        #                 return None
-        #     except Exception as e:
-        #         if self.verbosity == "error": print("Error 1 in get_target:", e)
-        # except Exception as e:
-        #     if self.verbosity == "error": print("Error 2 in get_target:", e)
-        #     return None
 
+        # Get the embedding of this image
+        this_embed = self.get_one_embed(path, model)
+
+        # Get the embeddings of all of the gallery images
         gallery_embeds = self.stacked_gallery_embeds[model].clone()
         this_embed = this_embed.clone()
 
+        # Compare with each gallery embedding
         distances = self.distance_function(gallery_embeds, this_embed.cuda())
         sorted_dists, sorted_indices = torch.sort(distances)
 
+        # Keep only the top n
         top_n_indices = sorted_indices[:n+1]
         top_n_dists = sorted_dists[:n+1]
 
@@ -411,9 +389,7 @@ class Cloaker():
         if self.verbosity == "log": print("Target for", path, "is", best_target)
         end = time.perf_counter()
         if self.verbosity == "log": print(f"Finding target took %0.4f seconds" % (end - start))
-        # for i, (path, sim) in enumerate(best_target):
-        #     print(f"DEBUG: Closest {i} for {model} (we move away from): {path} ({sim})")
-        # print("Returning best_target:", best_target)
+        
         return best_target
 
     # Get maximally different image from the pool
@@ -434,12 +410,15 @@ class Cloaker():
             if self.verbosity == "error": print("Error 2 in get_target:", e)
             return None
 
+        # Get all of the embeddings from the gallery
         gallery_embeds = self.stacked_gallery_embeds[model]
         this_embed = this_embed.to(self.device)
 
+        # Compute distances between this embedding and each gallery embedding
         distances = self.distance_function(gallery_embeds, this_embed)
         sorted_dists, sorted_indices = torch.sort(distances, descending=True)
 
+        # Keep the farthest one
         top_index = sorted_indices[0]
         top_dist = sorted_dists[0]
 
@@ -447,12 +426,9 @@ class Cloaker():
 
         print("Farthest is", best_target, " and has distance:", sorted_dists[0])
 
-
         if self.verbosity == "log": print("Target for", path, "is", best_target)
         end = time.perf_counter()
         if self.verbosity == "log": print(f"Finding target took %0.4f seconds" % (end - start))
-        # print("DEBUG: farthest (we move close to:)", best_target)
-        # print("DEBUG: farthest has distance:", top_dist)
         return best_target
     
     # Insert the cropped portion back into the image, resizing as necessary 
@@ -462,7 +438,6 @@ class Cloaker():
         cropped = cropped.squeeze().permute(1, 2, 0).detach().cpu().numpy()
 
         if self.verbosity == "log": print("Pre reverse norm range is", np.min(cropped), np.max(cropped))
-        #cropped = 255. * cropped
         cropped = self.reverse_norm_function(cropped)
         if self.verbosity == "log": print("Post reverse norm range is", np.min(cropped), np.max(cropped))
 
@@ -474,13 +449,13 @@ class Cloaker():
         ymax = int(boxes[3])
 
         cropped = cv2.resize(cropped, (xmax - xmin, ymax - ymin), interpolation=cv2.INTER_CUBIC)
+        
         # Retrieve the image and add the patch
         im = self.images[img_path]
         im = im.copy()
 
         # Convert to int to match with image int
         cropped = np.clip(cropped, 0, 255)
-        #im = im.astype(np.uint8, copy=False)
 
         try:
             im[ymin:ymax, xmin:xmax, :] = cropped
@@ -536,10 +511,9 @@ class Cloaker():
         
         # Call our cloaking method to obsure this image
         cropped = self.cloak_function(cropped, tgt_emb, self.eval_models[self.extractor], self.cloak_loss, self.device, self.cloak_func_args)
-        print("Got back cropped with shape", cropped.shape)
+        
         # Now that we have the cloaked cropped portion, it's time to fit that back into the image
         im = self.reconstruct_image(img_path, cropped)
-        #print("The after we reconstruct, min is", np.min(im), "max is", np.max(im), "mean is", np.mean(im), "std is", np.std(im))
         
         try:
             if im == None:
@@ -547,13 +521,11 @@ class Cloaker():
         except:
             None
 
-        # Save the image for reference later
-        # self.cloaked_images[img_path] = im
-
         return im
 
     # Cloak all images in the dataset
     def cloak_all(self, save_dir=None, do_paths=None):
+        
         # Make sure that the directory exists before we try to save anything there
         if not os.path.exists(save_dir) and save_dir != None:
             os.makedirs(save_dir)
@@ -592,7 +564,6 @@ class Cloaker():
             except:
                 None
             
-            # NOTE: Sometimes these images have different dimensions...?
             # Double check that it's the right size
             im = np.clip(im, a_min=0, a_max=255)
 
@@ -609,12 +580,11 @@ class Cloaker():
                 None
             
             if self.verbosity == "log": print("Right before writing, range is", np.min(im), np.max(im))
+            
             # If we couldn't find a target for the previous image, just skip
             if np.max(im) == 0:
                 continue
 
-            #print("Before saving im have shape", im.shape)
-            #print("Before saving my range is", np.min(im), np.max(im))
             total_path = save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg"
             if save_dir is not None:
                 if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
@@ -635,178 +605,9 @@ class Cloaker():
         for model in total_correct:
             print(f"{model} Accuracy: {total_correct[model] / num:.4f}")
 
-    def cloak_minmax(self, img_path, force_target=None, force_closest=None, original_path=None):
-        # Find the maximally different image
-        if force_target == None:
-            tgt_path = self.get_farthest(img_path, self.extractor)
-        else:
-            tgt_path = force_target
-
-        if tgt_path == None:
-            if self.verbosity == "error": print("No target for image (may cause error on line below)", img_path)
-            return np.zeros((self.cropped_im_size, self.cropped_im_size, 3))
-        
-        # If we're doing triplet loss, also calculate closest
-        if self.loss_func_select == "triplet":
-            if force_closest == None:
-                closest_path = self.get_closest(img_path, self.extractor)[0][0]
-            else:
-                closest_path = force_closest
-            closest_emb = self.get_one_embed(closest_path, self.extractor).clone()
-            self.multi_cloak_func_args["closest_emb"] = closest_emb
-
-        # Make these things available to the cloak function
-        self.multi_cloak_func_args["reconstruct_func"] = self.reconstruct_image
-        self.multi_cloak_func_args["image_path"] = img_path
-        self.multi_cloak_func_args["image"] = self.images[img_path]
-        self.multi_cloak_func_args["app"] = self.app
-        self.multi_cloak_func_args["backup_arcface"] = self.backup_arcface_model
-        self.multi_cloak_func_args["pipeline"] = self.pipeline
-        self.multi_cloak_func_args["norm_function"] = self.norm_function
-        self.multi_cloak_func_args["cropper"] = self.cropper
-        self.multi_cloak_func_args["num_gen_iterations"] = self.num_gen_iterations
-        self.multi_cloak_func_args["gen_learning_rate"] = self.gen_learning_rate
-        self.multi_cloak_func_args["device"] = self.device
-
-        #If we're doing fine-tuning, use the original image before deepfake universal.
-        if original_path:
-            self.multi_cloak_func_args["original_image"] = torch.Tensor(self.cropped_images[original_path]).to(device=self.device, dtype=torch.float16)
-        else:
-            self.multi_cloak_func_args["original_image"] = None
-        
-        # Retrieve the pre-computed target embedding
-        tgt_emb = self.embeds[self.extractor][tgt_path].clone()
-        
-        # Retrieve the pre-computed image embedding. 
-        cropped = self.cropped_images[img_path]
-        cropped = torch.Tensor(cropped).to(device=self.device, dtype=torch.float32)
-
-        # Make sure these aren't contributing to the computational graph
-        with torch.no_grad():
-            orig_embed = self.eval_models[self.extractor](cropped).detach()
-            tgt_emb = tgt_emb.detach()
-        
-        mask = self.multi_cloak_function(cropped, tgt_emb, self.eval_models[self.extractor], self.cloak_loss, self.device, self.multi_cloak_func_args)
-
-        try:
-            if mask == None:
-                print("ERROR: None mask")
-                return None
-        except:
-            None
-
-        return mask
-
-
-    def cloak_all_minmax(self, save_dir=None, gen_save_path=None, do_paths=None):
-        # Make sure that the directory exists before we try to save anything there
-        if not os.path.exists(save_dir) and save_dir != None:
-            os.makedirs(save_dir)
-        
-        if not os.path.exists(gen_save_path) and gen_save_path != None:
-            os.makedirs(gen_save_path)
-
-        warnings.filterwarnings("ignore")
-        # Set up basic metrics
-        total_ssim_before = 0.0
-        total_psnr_before = 0.0
-        total_mse_before = 0.0
-
-        # Iterate through each item in the dataset. Accept do_paths in case we want to call this function externally on a limited dataset
-        num = 0
-        if do_paths == None:
-            these_paths = self.probe_paths
-        else:
-            these_paths = do_paths
-
-        # Iterate for each path we want to cloak
-        for path in these_paths:
-            num += 1
-            start_full = time.perf_counter()
-            if num > num_images:
-                break
-            print("\n\n====== MinMax Cloaking (", str(num), "/", str(num_images), ":", path, ") =======\n\n")
-            if self.verbosity == "log": print("Cloaking image", path)
-
-            orig_farthest_path = self.get_farthest(path, self.extractor)
-            orig_closest_path = self.get_closest(path, self.extractor)[0][0]
-
-            # Read in a given image from the real dataset. If we already have a mask for it, apply the mask, otherwise go to the logic that generates the mask.
-            name = os.path.basename(path)[:os.path.basename(path).find("_")]
-            file_name = os.path.basename(path)[:os.path.basename(path).find(".")]
-            
-            image = self.images[path]
-
-            # Track the paths of the saved images
-            gen_paths = []
-
-            try:
-                # Fetch the mask
-                mask = self.multi_map[name]
-                print("==== Successfully loaded premade mask ====")
-            except:
-                print("About to call minmax")
-                mask = self.cloak_minmax(path, force_target=orig_farthest_path, force_closest=orig_closest_path)
-                self.multi_map[name] = mask
-
-            #Apply pert to the cropped face region of the image and make sure it's a valid image range. Save original im for similarity metrics
-            orig_im = image.copy().clip(0, 255).astype(np.uint8)
-
-            boxes = self.boxes[path]
-            xmin = int(boxes[0])
-            ymin = int(boxes[1])
-            xmax = int(boxes[2])
-            ymax = int(boxes[3])
-
-            # Make sure the typing is compatible. Images are usually np.uint8, and the masks begin as floats but are casted to int16 instead of uint8 to prevent integer overflow
-            print("Image has range", np.min(image), np.max(image))
-            print("Mask has range", np.min(mask), np.max(mask))
-            image = image.astype(np.int16)
-            mask = mask.astype(np.int16)
-            
-            # If the face area is (112, 112, 3) then simply add the mask
-            if mask.shape == image[ymin:ymax, xmin:xmax, :].shape:
-                image[ymin:ymax, xmin:xmax,:] += mask
-            else:
-                mask = cv2.resize(mask, ((xmax - xmin), (ymax - ymin)), interpolation=cv2.INTER_CUBIC)
-            image[ymin:ymax, xmin:xmax, :] += mask
-
-            # Make sure image is still in valid range before we convert back to unsigned ints
-            image = np.clip(image, 0, 255)
-            image = image.astype(np.uint8)
-
-            # Calculate PSNR, SSIM, and MSE before fine-tuning
-            try:
-                total_ssim_before += structural_similarity(orig_im, image, channel_axis=2, data_range=255.0)
-                total_mse_before += mse
-                total_psnr_before += 20.0 * log10(255.0 / sqrt(mse))
-            except Exception as e:
-                if self.verbosity == "error": print("ERROR in calculating metrics:", e)
-                None
-            
-            if self.verbosity == "log": print("Right before writing, range is", np.min(image), np.max(image))
-            
-            # If we couldn't find a target for the previous image, just skip
-            if np.max(image) == 0:
-                if self.verbosity == "error": print("No target found for image, skipping")
-                continue
-
-            # # Make sure this is available for use later. We save the image now so that when we convert back to BGR it doesn't affect the second metric test
-            total_path = save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg"
-            self.boxes[total_path] = boxes.copy()
-            self.images[total_path] = image.copy()
-
-            if save_dir is not None:
-                if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
-                Image.fromarray(image).save(total_path)
-
-        # Print similarity metrics
-        print(f"Average SSIM Before Fine-Tuning %0.4f" % (total_ssim_before / (num-1)))
-        print(f"Average PSNR Before Fine-Tuning  %0.4f" % (total_psnr_before / (num-1)))
-        print(f"Average MSE Before Fine-Tuning %0.4f" % (total_mse_before / (num-1)))
-       
-
+    # Cloak a single image, generating an identity-specific cloak for that person
     def cloak_multi(self, orig_im, img_paths, force_target=None, force_closest=None):
+        
         # Run each image in img_paths through get_one_embed so that there is a cropped version of them
         embeds = [self.get_one_embed(im, self.extractor) for im in img_paths]
         cropped_list = [self.cropped_images[im] for im in img_paths]
@@ -830,20 +631,15 @@ class Cloaker():
         self.multi_cloak_func_args["image_path"] = orig_im
         self.multi_cloak_func_args["image"] = self.images[orig_im]
         
-        # # Retrieve the pre-computed target embedding
-        # if self.multi_loss_func_select == "untarget":
-        #     tgt_emb = self.embeds[orig_im].clone() # Untargeted loss
-        # else:
-        #     tgt_emb = self.multi_cloak_func_args["tgt_emb"] # Everything else
-        # tgt_emb = tgt_emb.detach()
-        
         # Call the cloak function, passing the list of cropped images as one of the inputs. Returns a mask
         mask, sticker_handler, highpass_handler = self.multi_cloak_function(cropped_list, self.multi_cloak_func_args["tgt_emb"], self.eval_models[self.extractor], self.multi_cloak_loss, self.device, self.multi_cloak_func_args)
         print("Got back a mask with range", np.min(mask), np.max(mask))
         mask *= 255.0
         return mask, sticker_handler, highpass_handler
 
+    # Cloak all images in a dataset, re-using the identity-specific mask if a repeat identity is found.
     def cloak_all_multi(self, save_dir=None, gen_save_path="/", do_paths=None):
+        
         # Make sure that the directory exists before we try to save anything there
         if not os.path.exists(save_dir) and save_dir != None:
             os.makedirs(save_dir)
@@ -852,6 +648,7 @@ class Cloaker():
             os.makedirs(gen_save_path)
 
         warnings.filterwarnings("ignore")
+        
         # Set up basic metrics
         total_ssim_before, total_ssim_after = 0.0, 0.0
         total_psnr_before, total_psnr_after = 0.0, 0.0
@@ -882,11 +679,8 @@ class Cloaker():
             if self.verbosity == "log": print("Cloaking image", path)
             print("Right at the start, image is size", self.images[path].shape)
 
-            #orig_farthest_path = self.get_farthest(path)
             orig_farthest_path = self.get_farthest(path, self.extractor)
-            #print("Old farthest path is:", orig_farthest_path)
-            ##orig_farthest_path = "data/celeba_verify/group1_gallery/000291_0.jpg"
-            #orig_farthest_path = "data/celeba_verify/group2_gallery/200502_0.jpg"
+            orig_farthest_path = "data/celeba_verify/group2_gallery/200502_0.jpg"
             orig_closest_path = self.get_closest(path, self.extractor)[0][0]
 
             # Read in a given image from the real dataset. If we already have a mask for it, apply the mask, otherwise go to the logic that generates the mask.
@@ -894,53 +688,39 @@ class Cloaker():
             
             image = self.images[path]
 
-            # try:
-            #     # Fetch the mask
-            #     mask = self.multi_map[name]
-            #     sticker_handler = self.sticker_map[name]
-            #     print("==== Successfully loaded premade mask ====")
-            # except:
-            # Read in image and embed it with arcface
-            pil = Image.open(path).convert("RGB")
-            # border = max(pil.size) // 16  # ~12% padding
-            # pil = ImageOps.expand(pil, border=border, fill=(0, 0, 0))
-            w, h = pil.size
-
-            #pil = pil.resize((w*4, h*4), Image.BICUBIC)
-            image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
-            # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
-            # print("DEBUG: Detector model:", self.app.models['detection'])
-
-            # Track the paths of the saved images
-            gen_paths = []
-
-            if self.use_real:
-                gen_paths = self.use_real_images(path)
-            else:
-                gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
-            gen_paths.append(path)
-
-            # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
-            start = time.perf_counter()
-            mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
-            end = time.perf_counter()
-            if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
-            self.multi_map[name] = mask.copy()
-            self.sticker_map[name] = sticker_handler
-            self.highpass_map[name] = highpass_handler
-
-                # clean up by deleting generated images to save space
+            try:
+                # Fetch the identity-specific mask if it's available
+                mask = self.multi_map[name]
+                sticker_handler = self.sticker_map[name]
+                print("==== Successfully loaded premade mask ====")
+            except:
                 
+                # Read in image and embed it with arcface
+                pil = Image.open(path).convert("RGB")
+                w, h = pil.size
+                image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
+                
+                # Track the paths of the saved images
+                gen_paths = []
 
-            # INDENT HERE    
-            # Make sure the typing is compatible. Images are usually np.uint8, and the masks begin as floats but are casted to int16 instead of uint8 to prevent integer overflow
-            # print("DEBUG: Before preprocess, image shaoe is", image.shape)
+                if self.use_real:
+                    gen_paths = self.use_real_images(path)
+                else:
+                    gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
+                gen_paths.append(path)
+
+                # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
+                start = time.perf_counter()
+                mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
+                end = time.perf_counter()
+                if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
+                self.multi_map[name] = mask.copy()
+                self.sticker_map[name] = sticker_handler
+                self.highpass_map[name] = highpass_handler                    
+
             image, _ = self.preprocess_image_for_user(path)
-            # print("DEBUG: After preprocess, image shape is", image.shape)
             image = image.detach().cpu().numpy().astype(np.int16)
             mask = mask.astype(np.float32)
-            # print("DEBUG: Before add, mask has range", np.min(mask), np.max(mask))
-            # print("DEBUG: Before add, image has range", np.min(image), np.max(image))
             
             #Apply pert to the cropped face region of the image and make sure it's a valid image range. Save original im for similarity metrics
             orig_im = image.copy()
@@ -951,21 +731,9 @@ class Cloaker():
             xmax = int(boxes[2])
             ymax = int(boxes[3])
             
-            #If the face area is (112, 112, 3) then simply add the mask
+            # Simply add the mask
             apply_start = time.perf_counter()
-            # if mask.shape == image[ymin:ymax, xmin:xmax, :].shape:
-            #     # print("DEBUG: Mask shape fit into image. Mask shape:", mask.shape)
-            #     mask = mask.astype(np.int16)
-            #     image[ymin:ymax, xmin:xmax,:] += mask
-            # else:
-            #     print("Had to reshape the mask here from orig shape", mask.shape)
-            #     mask = cv2.resize(mask, ((xmax - xmin), (ymax - ymin)), interpolation=cv2.INTER_CUBIC)
-            #     print("To new shape", mask.shape)
-            #     mask = mask.astype(np.int16)
-            #     image[ymin:ymax, xmin:xmax, :] += mask
             mask = mask.astype(np.int16)
-
-            print("The image we are going to add the mask to is shape", image.shape)
             image[ymin:ymin+mask.shape[0], xmin:xmin+mask.shape[1], :] += mask
 
             if sticker_handler:
@@ -974,13 +742,14 @@ class Cloaker():
                 image[ymin:ymin+112, xmin:xmin+112, :] = highpass_handler.apply_highpass(image[ymin:ymin+112, xmin:xmin+112, :], mode="image")
             
             end_full = time.perf_counter()
+            
             # Make sure image is still in valid range before we convert back to unsigned ints
             image = np.clip(image, 0, 255)
             image = image.astype(np.uint8)
             apply_end = time.perf_counter()
             print(f"Applying mask to image took: {apply_end-apply_start} seconds.")
 
-            # Calculate PSNR, SSIM, and MSE before fine-tuning
+            # Calculate PSNR, SSIM, and MSE
             image_copy = image.copy()
             orig_image_copy = orig_im.copy()
             try:
@@ -1019,33 +788,6 @@ class Cloaker():
                 total_correct_top5[model] += results_top5[model]
             results_end = time.perf_counter()
             print(f"Calculating results took: {results_end-results_start:.4f} seconds")
-            
-            if self.mode == "multi_finetune":
-                # Try fine-tuning it a bit, but still targeting the original image
-                _ = self.get_one_embed(total_path, self.extractor) # make sure we have access to the cropped image and the embedding
-                #print("Just called get_one_embed on total_path", total_path)
-                image = self.cloak_image(total_path, self.target_pool_size, force_target=orig_farthest_path, force_closest=orig_closest_path)#, original_path=path)
-
-                # Save the fine-tuned image, overwriting the image from before
-                if save_dir is not None:
-                    if self.verbosity == "log": print("Saving fine-tuned to", save_dir + os.path.basename(path))
-                    total_path = save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg"
-                    Image.fromarray(image).save(total_path)
-
-            # Calculate PSNR, SSIM, and MSE again now that we've fine-tuned
-            # print("The second time we calculate, min is", np.min(image), "max is", np.max(image), "mean is", np.mean(image), "std is", np.std(image))
-            # print("mean image difference is", np.mean(image - image_copy), np.max(image - image_copy), np.min(image - image_copy))
-            # print("mean orig image difference is", np.mean(orig_im - orig_image_copy), np.max(orig_im - orig_image_copy), np.min(orig_im - orig_image_copy))
-            # print("DEBUG: image has shape:", image.shape, "and range:", np.min(image), np.max(image))
-            # print("DEBUG: orig_image has shape:", orig_im.shape, "and range:", np.min(orig_im), np.max(orig_im))
-            try:
-                total_ssim_after += structural_similarity(orig_im.astype(np.int8), image.astype(np.int8), channel_axis=2, data_range=255.0)
-                mse = np.mean(np.square((orig_im - image)))
-                total_mse_after += mse
-                total_psnr_after += 20.0 * log10(255.0 / sqrt(mse))
-            except Exception as e:
-                if self.verbosity == "error": print("ERROR in calculating metrics:", e)
-                None
 
             print("====== Full Iteration Took:", end_full-start_full, "seconds. =======")
             total_time += end_full-start_full
@@ -1054,10 +796,6 @@ class Cloaker():
         print(f"Average SSIM %0.4f" % (total_ssim_before / (num)))
         print(f"Average PSNR %0.4f" % (total_psnr_before / (num)))
         print(f"Average MSE %0.4f" % (total_mse_before / (num)))
-        #print(f"Average SSIM After Fine-Tuning %0.4f" % (total_ssim_after / (num)))
-        #print(f"Average PSNR After Fine-Tuning %0.4f" % (total_psnr_after / (num)))
-        #print(f"Average MSE After Fine-Tuning %0.4f" % (total_mse_after / (num)))
-        
         print("\n---- Timing ----")
         print(f"\nAverage Iteration Time: {total_time / num:.4f}")
         
@@ -1070,101 +808,9 @@ class Cloaker():
             #print(f"{model} Accuracy: {total_correct_top5[model] / num:.4f}")
             print(f"{model} PSR: {1 - total_correct_top5[model] / num:.4f}")
 
-    # Apply makeup to all of the images in the dataset
-    def makeup_all(self, save_dir=None, makeup_mode="DiffAM"):
-        # Make sure that the directory exists before we try to save anything there
-        if not os.path.exists(save_dir) and save_dir != None:
-            os.makedirs(save_dir)
-        
-        total_ssim = 0.0
-        total_psnr = 0.0
-        total_mse = 0.0
-
-        # If we want to use the DiffAM method, prepare to call that code
-        if makeup_mode.lower() == "diffam":
-            with open("src/DiffAM/configs/MT.yml", 'r') as f:
-                config = yaml.safe_load(f)
-            config = dict2namespace(config)
-            model_path = "src/DiffAM/checkpoint/test_MT_CelebA_HQ_XMY-060_t60_ninv20_ngen6_dis1_dir0.3_lr8e-06_XMY-060-3.pth"
-            model = DDPM(config)
-            ckpt = torch.load(model_path)
-            learn_sigma = False
-            model.load_state_dict(ckpt)
-            model.to(self.device, dtype=torch.float32)
-            model = torch.nn.DataParallel(model)
-            model.eval()
-            print(f"{model_path} is loaded for makeup transfer.")
-
-        if makeup_mode.lower() == "amt-gan":
-            # parser = setup_argparser()
-            # args = parser.parse_args()
-            config = get_config()
-            config.source_dir = "/"
-            config.reference_dir = "/"
-            config.save_path = save_dir
-            config.device = 0
-            config.model_path = "src/AMTGAN/checkpoints/G.pth"
-            inference = Inference(config, self.device, "src/AMTGAN/checkpoints/G.pth")
-            postprocess = PostProcess(config)
-
-        # Iterate through each item in the dataset
-        num = 0
-        prog_bar = tqdm(range(num_images))
-        for path in self.probe_paths:
-            num += 1
-            prog_bar.update(1)
-            prog_bar.refresh()
-            if num > num_images:
-                print(f"Average SSIM %0.4f" % (total_ssim / num))
-                print(f"Average PSNR %0.4f" % (total_psnr / num))
-                print(f"Average MSE %0.4f" % (total_mse / num))
-                return
-            if self.verbosity == "log": print("Applying makeup to image", path)
-
-            # Cloak the image
-            orig_im = self.images[path].copy()
-            if makeup_mode.lower() == "diffam":
-                im = diffam_makeup(path=path, model=model, config=config, device=self.device)
-            if makeup_mode.lower() == "amt-gan":
-                im = amtgan_makeup(path=path, inference=inference, postprocess=postprocess)
-            # Check for a none image
-            try:
-                if im == None:
-                    continue
-            except:
-                None
-            
-            # NOTE: Sometimes these images have different dimensions...?
-            # Double check that it's the right size
-            im = np.clip(im, a_min=0, a_max=255)
-            orig_im = cv2.resize(orig_im, (im.shape[0], im.shape[1]), interpolation=cv2.INTER_CUBIC)
-
-            # Calculate PSNR, SSIM, and MSE
-            try:
-                total_ssim += structural_similarity(orig_im, im, channel_axis=2, data_range=255.0)
-                mse = np.mean(np.square((orig_im - im)))
-                total_mse += mse
-                total_psnr += 20.0 * log10(255.0 / sqrt(mse))
-            except Exception as e:
-                if self.verbosity == "error": print("ERROR in calculating metrics:", e)
-                None
-            
-            if self.verbosity == "log": print("Right before writing, range is", np.min(im), np.max(im))
-            # If we couldn't find a target for the previous image, just skip
-            if np.max(im) == 0:
-                continue
-
-            #print("Before saving im have shape", im.shape)
-            #print("Before saving my range is", np.min(im), np.max(im))
-            if save_dir is not None:
-                if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
-                Image.fromarray(im).save(save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg")
-        
-        print(f"Average SSIM %0.4f" % (total_ssim / num))
-        print(f"Average PSNR %0.4f" % (total_psnr / num))
-        print(f"Average MSE %0.4f" % (total_mse / num))
-
+    # Standard preprocessing to prepare images for face embedding extraction
     def preprocess_image_for_user(self, path):
+        
         # Skip if we've already preprocessed this image
         if self.preprocessed_ims.get(path, False):
             return torch.tensor(self.images[path]), self.boxes[path]
@@ -1192,7 +838,7 @@ class Cloaker():
         # Parse box coordinates
         xmin, ymin, xmax, ymax = map(float, boxes)
 
-        # Bounds checking before resize ---
+        # Bounds checking before resize
         xmin = max(0, min(xmin, W - 1))
         ymin = max(0, min(ymin, H - 1))
         xmax = max(0, min(xmax, W - 1))
@@ -1235,7 +881,7 @@ class Cloaker():
 
     # Evaluate the given image on every eval model and return the accuracies
     def eval_on_all_models(self, path, n):
-        # CelebA only has 1 for each identity
+        # CelebA only has 1 for each identity - this is for face verification instead of identification
         if self.probe_dataset_path in ["data/celeba/probe", "data/celeba_small/probe", "data/celeba_verify/group1_probe", "data/celeba_verify/group2_probe", "data/celeba_verify/group3_probe", "data/celeba_verify/group4_probe", "data/celeba_verify/group5_probe"]:
             num_comparisons = 1
         else: # All others have 4 others for each identity
@@ -1257,6 +903,7 @@ class Cloaker():
             print("Score:", results[model])
         return results
 
+    # Generate synthetic images given a single input image
     def generate_images(self, image_to_gen, path, gen_save_path):
         gen_paths = []
         file_name = os.path.basename(path)[:os.path.basename(path).find(".")]
@@ -1281,15 +928,13 @@ class Cloaker():
             arcface_model = self.app.models['recognition']
             id_emb = torch.tensor(arcface_model.get_feat(crop), dtype=torch.float16).cuda()
 
-            #crop = self.norm_function(image)
-            #crop = torch.tensor(crop.transpose((2, 0, 1)), dtype=torch.float16).unsqueeze(0).to(self.device)
-            #crop = F.interpolate(crop, size=(self.cropped_im_size, self.cropped_im_size), mode="bilinear", align_corners=False)
-            #id_emb = torch.tensor(self.backup_arcface_model(crop), dtype=torch.float16).detach().clone()
+        
         id_emb = id_emb/torch.norm(id_emb, dim=1, keepdim=True) 
         
         # Project the image embedding into the CLIP prompt embedding
         id_emb = project_face_embs(self.pipeline, id_emb).detach().clone()   # ensure no history
         id_emb.requires_grad_(True)
+        
         # Generate num_generate_images fake images of the person and save them
         outputs = []
 
@@ -1309,14 +954,7 @@ class Cloaker():
         
         end = time.perf_counter()
         if self.verbosity == "error": print(f"Generating {self.num_images_to_generate} images took {end-start:4f} seconds")
-        #outputs.append(output[0]) #comment out this line if not doing poses
 
-        # Save a 512x512 version of the image for use in alternating with deepfakes
-        # big_image = cv2.resize(image, (512,512), cv2.INTER_CUBIC)
-        # big_image = cv2.cvtColor(big_image, cv2.COLOR_RGB2BGR)
-        # cv2.imwrite(gen_save_path + "/" + file_name + "_big.png", big_image)
-        # gen_paths.append(gen_save_path + "/" + file_name + "_big.png") #interleave with original image but upscaled
-        
         # Save the paths and the images. We need to save the paths in a list so that the code can use them elsewhere
         start = time.perf_counter()
         for i, im in enumerate(outputs):
@@ -1329,6 +967,7 @@ class Cloaker():
 
         return gen_paths
     
+    # Use real images instead, in case we want to experiment with this
     def use_real_images(self, path):
         count = 8
         paths = []
@@ -1343,6 +982,3 @@ class Cloaker():
                     return paths
         
         return paths
-
-    def apply_defense(self):
-        None

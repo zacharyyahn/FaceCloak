@@ -1,3 +1,7 @@
+"""
+Handler for running batch experiments or easily configuring experimental settings 
+"""
+
 import os
 import sys
 import subprocess
@@ -5,30 +9,30 @@ from itertools import product
 
 dataset = "privacy_common"
 
-distances = ["cosine"]
-cloak_funcs = ["pgd_cloak"]
-multi_cloak_funcs = ["afog_cloak_multi"]
-do_stickers = ["1"]
-do_highpass = ["1"]
-use_real = ["0","1"]
-multi_losses = ["triplet"]
-losses = ["triplet"]
-iterations = ["0"]
-multi_iterations = ["10"]
-gen_iterations = ["0"]
-gen_lr = ["0.0"]
-models = ["ArcFace","CosFace","IncRes50","Facenet"]
-probe_dataset = [f"{dataset}/probe_small"]
-gallery_dataset = [f"{dataset}/gallery_small"]
-pert_steps = ["2"]
-finetune_perts = ["0"]
-multi_perts = ["8"]
-modes = ["multi"]
-percep_funcs = ["dssim"]
-percep_weights = ["0.0"]
-num_images_to_generate = ["2","4","6","8","10"]
-n_to_eval = ["5"]
-notes = ["none"]
+distances = ["cosine"]                          # how to compare distances of two embeddings
+cloak_funcs = ["pgd_cloak"]                     # which cloak function to use if mode is 'perturb' for single-image perturbations
+multi_cloak_funcs = ["afog_cloak_multi"]        # which cloak function to use if mode is 'multi'
+do_stickers = ["1"]                             # whether to use region-stickers
+do_highpass = ["1"]                             # whether to use highpass-masks
+use_real = ["0"]                                # whether to use real or synthetic images
+multi_losses = ["triplet"]                      # what loss function to use if mode is 'multi'
+losses = ["triplet"]                            # what loss function to use if mode is 'perturb'
+iterations = ["0"]                              # how many optimization iterations if mode is 'perturb'
+multi_iterations = ["10"]                       # how many optimization iterations if mode is 'multi'
+gen_iterations = ["0"]                          # gen iterations
+gen_lr = ["0.0"]                                # gen learning rate
+models = ["ArcFace"]                            # which model to use as 
+probe_dataset = [f"{dataset}/probe_small"]      # which probe set to use
+gallery_dataset = [f"{dataset}/gallery_small"]  # which gallery set to use
+pert_steps = ["2"]                              # step size of perturbation optimization if mode is 'perturb'
+finetune_perts = ["0"]                          # step size of perturbation finetuning (if using)
+multi_perts = ["8"]                             # step size of perturbation optimization if mode is 'multi'
+modes = ["multi"]                               # mode to use. In our experiments we use 'multi' for all experiments
+percep_funcs = ["dssim"]                        # type of perceptual loss, if using
+percep_weights = ["0.0"]                        # weight of perceptual loss, if using
+num_images_to_generate = ["8"]                  # number of synthetic images to generate per identity
+n_to_eval = ["5"]                               # number of images to eval on. Leave as 5 for default experiments
+notes = ["none"]                                # additional notes to add to name of output run
 
 for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, gen_lr, model, probe_data, gal_data, ft_perts, mul_perts, pert_steps, mode, pc_f, pc_w, num_ims, n_eval, use_real, note in product(*[
     distances, 
@@ -56,29 +60,14 @@ for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, ge
     use_real,
     notes
     ]):
-    # regular inc_res_test is privacy_common, which we hope will be high because no pert
-    # inc_res_test2 is celeba_small which we hope will be high because no pert
-    # inc_res_test3 is celeba_small which we hope will be low because pert (all three have updated scaling)
-
+   
     template = open("src/cloak_template.txt",'r')
     template = template.read()
-    #save_line = f"cloak_{dataset}_{model}_{mcf}_sticker_{stickers}_highpass_{highpass}_dssim_{pc_w}_max_pert_{mul_perts}_pert_step_{pert_steps}_ims_{num_ims}_{note}"
-    #save_line = f"verification_test_{model}_group_{group}_perts_{mul_perts}"
-    save_line = f"test_number_{model}_use_real_{use_real}_ims_{num_ims}"
-    #save_line = f"cloak_{model}_{mcf}_ims_{num_ims}_dssim_{pc_w}"
-    #save_line = "test_highpass_sticker"
-    # if mode == "multi_finetune":
-    #     save_line = f"cloak_{data}_{mode}_{model}_{dist}_{mcf}_{mul_loss}_{mul_itr}_{mul_perts}_{cf}_{loss}_{itr}_{ft_perts}_{pert_steps}_{pc_f}_{pc_w}_{note}"
-    #     print("save line is:", save_line)
-    # elif mode == "minmax":
-    #     save_line = f"cloak_{data}_{mode}_{model}_{dist}_{mcf}_{mul_loss}_{mul_itr}_{mul_perts}_{pert_steps}_{gen_itr}_{gen_lr}_{itr}_{pc_f}_{pc_w}_{note}"
-    #     print("save line is:", save_line)
 
-    #note = f"_dssim_{dssim}_{mp}_p_{p}"
-    # if note == None:
-    #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}"
-    # else:
-    #     save_line = f"{prefix}_{m}_{d}_{o}_{q}_{z}_{l}_{i}_{p}_{t}_{note}"
+    # Save line for tracking each individual experiment
+    save_line = f"cloak_{dataset}_{model}_{mcf}_sticker_{stickers}_highpass_{highpass}_dssim_{pc_w}_max_pert_{mul_perts}_pert_step_{pert_steps}_ims_{num_ims}_{note}"
+    
+    # Populate the template script
     f = open("autoscripts/" + save_line + ".sbatch", 'w')
     template = template.replace("PROBE_DATASET_PATH", "data/" + probe_data)
     template = template.replace("GALLERY_DATASET_PATH", "data/" + gal_data)
@@ -109,6 +98,7 @@ for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, ge
     f.write(template)
     f.close()
 
+    # Run each script
     subprocess.run(["mkdir","data/cloaked/" + save_line])
     subprocess.run(["mkdir","data/gen/" + save_line ])
     subprocess.run(["sbatch","autoscripts/" + save_line + ".sbatch"])

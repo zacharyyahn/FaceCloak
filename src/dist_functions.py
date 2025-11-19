@@ -1,3 +1,7 @@
+"""
+Helper file with distance functions
+"""
+
 import torch
 import numpy as np
 import torch.nn.functional as F

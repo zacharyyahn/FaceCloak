@@ -1,3 +1,8 @@
+"""
+File for defining a dataset of face images, which supports loading from any of the face datasets we use.
+"""
+
+
 from torch.utils.data import Dataset
 import random
 import os
