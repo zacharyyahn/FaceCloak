@@ -3,30 +3,30 @@ import sys
 import subprocess
 from itertools import product
 
-dataset = "privacy_celeb"
+dataset = "privacy_common"
 
 distances = ["cosine"]
 cloak_funcs = ["pgd_cloak"]
 multi_cloak_funcs = ["afog_cloak_multi"]
 do_stickers = ["1"]
 do_highpass = ["1"]
-use_real = ["0"]
+use_real = ["0","1"]
 multi_losses = ["triplet"]
 losses = ["triplet"]
 iterations = ["0"]
 multi_iterations = ["10"]
 gen_iterations = ["0"]
 gen_lr = ["0.0"]
-models = ["IncRes152"]
-probe_dataset = [f"{dataset}/figure"]
-gallery_dataset = [f"{dataset}/probe"]
+models = ["ArcFace","CosFace","IncRes50","Facenet"]
+probe_dataset = [f"{dataset}/probe_small"]
+gallery_dataset = [f"{dataset}/gallery_small"]
 pert_steps = ["2"]
 finetune_perts = ["0"]
-multi_perts = ["12"]
+multi_perts = ["8"]
 modes = ["multi"]
 percep_funcs = ["dssim"]
 percep_weights = ["0.0"]
-num_images_to_generate = ["8"]
+num_images_to_generate = ["2","4","6","8","10"]
 n_to_eval = ["5"]
 notes = ["none"]
 
@@ -63,8 +63,8 @@ for dist, cf, mcf, stickers, highpass, mul_loss, loss, itr, mul_itr, gen_itr, ge
     template = open("src/cloak_template.txt",'r')
     template = template.read()
     #save_line = f"cloak_{dataset}_{model}_{mcf}_sticker_{stickers}_highpass_{highpass}_dssim_{pc_w}_max_pert_{mul_perts}_pert_step_{pert_steps}_ims_{num_ims}_{note}"
-    save_line = f"privacy_celeb_figure"
-    #save_line = f"inc_res_test_{mul_perts}_{mcf}"
+    #save_line = f"verification_test_{model}_group_{group}_perts_{mul_perts}"
+    save_line = f"test_number_{model}_use_real_{use_real}_ims_{num_ims}"
     #save_line = f"cloak_{model}_{mcf}_ims_{num_ims}_dssim_{pc_w}"
     #save_line = "test_highpass_sticker"
     # if mode == "multi_finetune":

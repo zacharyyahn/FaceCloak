@@ -18,9 +18,6 @@ from AMTGAN.setup import setup_config, setup_argparser
 from AMTGAN.backbone import Inference, PostProcess, get_config
 from torchvision import transforms as trans
 from cloak_functions import pgd_cloak
-from DiffAM.main import dict2namespace
-from makeup_functions import diffam_makeup, amtgan_makeup
-from DiffAM.models.ddpm.diffusion import DDPM
 from skimage.metrics import structural_similarity
 from AMTGAN.assets.models.facenet import InceptionResnetV1
 from AMTGAN.assets.models.ir152 import IR_152, IR_SE_50
@@ -887,6 +884,9 @@ class Cloaker():
 
             #orig_farthest_path = self.get_farthest(path)
             orig_farthest_path = self.get_farthest(path, self.extractor)
+            #print("Old farthest path is:", orig_farthest_path)
+            ##orig_farthest_path = "data/celeba_verify/group1_gallery/000291_0.jpg"
+            #orig_farthest_path = "data/celeba_verify/group2_gallery/200502_0.jpg"
             orig_closest_path = self.get_closest(path, self.extractor)[0][0]
 
             # Read in a given image from the real dataset. If we already have a mask for it, apply the mask, otherwise go to the logic that generates the mask.
@@ -894,43 +894,45 @@ class Cloaker():
             
             image = self.images[path]
 
-            try:
-                # Fetch the mask
-                mask = self.multi_map[name]
-                sticker_handler = self.sticker_map[name]
-                print("==== Successfully loaded premade mask ====")
-            except:
-                # Read in image and embed it with arcface
-                pil = Image.open(path).convert("RGB")
-                # border = max(pil.size) // 16  # ~12% padding
-                # pil = ImageOps.expand(pil, border=border, fill=(0, 0, 0))
-                w, h = pil.size
+            # try:
+            #     # Fetch the mask
+            #     mask = self.multi_map[name]
+            #     sticker_handler = self.sticker_map[name]
+            #     print("==== Successfully loaded premade mask ====")
+            # except:
+            # Read in image and embed it with arcface
+            pil = Image.open(path).convert("RGB")
+            # border = max(pil.size) // 16  # ~12% padding
+            # pil = ImageOps.expand(pil, border=border, fill=(0, 0, 0))
+            w, h = pil.size
 
-                #pil = pil.resize((w*4, h*4), Image.BICUBIC)
-                image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
-                # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
-                # print("DEBUG: Detector model:", self.app.models['detection'])
+            #pil = pil.resize((w*4, h*4), Image.BICUBIC)
+            image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
+            # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
+            # print("DEBUG: Detector model:", self.app.models['detection'])
 
-                # Track the paths of the saved images
-                gen_paths = []
+            # Track the paths of the saved images
+            gen_paths = []
 
-                if self.use_real:
-                    gen_paths = self.use_real_images(path)
-                else:
-                    gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
-                gen_paths.append(path)
+            if self.use_real:
+                gen_paths = self.use_real_images(path)
+            else:
+                gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
+            gen_paths.append(path)
 
-                # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
-                start = time.perf_counter()
-                mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
-                end = time.perf_counter()
-                if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
-                self.multi_map[name] = mask.copy()
-                self.sticker_map[name] = sticker_handler
-                self.highpass_map[name] = highpass_handler
+            # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
+            start = time.perf_counter()
+            mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
+            end = time.perf_counter()
+            if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
+            self.multi_map[name] = mask.copy()
+            self.sticker_map[name] = sticker_handler
+            self.highpass_map[name] = highpass_handler
 
                 # clean up by deleting generated images to save space
                 
+
+            # INDENT HERE    
             # Make sure the typing is compatible. Images are usually np.uint8, and the masks begin as floats but are casted to int16 instead of uint8 to prevent integer overflow
             # print("DEBUG: Before preprocess, image shaoe is", image.shape)
             image, _ = self.preprocess_image_for_user(path)
@@ -1234,7 +1236,7 @@ class Cloaker():
     # Evaluate the given image on every eval model and return the accuracies
     def eval_on_all_models(self, path, n):
         # CelebA only has 1 for each identity
-        if self.probe_dataset_path in ["data/celeba/probe", "data/celeba_small/probe"]:
+        if self.probe_dataset_path in ["data/celeba/probe", "data/celeba_small/probe", "data/celeba_verify/group1_probe", "data/celeba_verify/group2_probe", "data/celeba_verify/group3_probe", "data/celeba_verify/group4_probe", "data/celeba_verify/group5_probe"]:
             num_comparisons = 1
         else: # All others have 4 others for each identity
             num_comparisons = 4
