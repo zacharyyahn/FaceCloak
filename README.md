@@ -20,7 +20,7 @@ Our splits of probe and gallery datasets are available at the links below:
 <b>Datasets:</b> <a href='https://drive.google.com/drive/folders/1bvSvoxfuWdn5UVhhwlV7_9_oTHa5z6Is?usp=sharing'>[Google Drive Link]</a><br>
 Put the `data` folder at the top level directory.
 
-<b>Models:</b> <a href='https://drive.google.com/drive/folders/1bvSvoxfuWdn5UVhhwlV7_9_oTHa5z6Is?usp=sharing'>[Google Drive Link]</a><br>
+<b>Models:</b> <a href='https://drive.google.com/drive/folders/1jgkQ3VSSYamig9Ro5tM4g8Cig4VEnjRk?usp=sharing'>[Google Drive Link]</a><br>
 Put the `model_checkpoints` folder at the top level directory.
 
 ### Running the Code
