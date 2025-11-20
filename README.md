@@ -17,11 +17,11 @@ We use Python version 3.10.16 for all of our experiments.
 ### Datasets and Models
 Our splits of probe and gallery datasets are available at the links below:
 
-<b>Datasets:</b> <br>
+<b>Datasets:</b> <a href='https://drive.google.com/drive/folders/1bvSvoxfuWdn5UVhhwlV7_9_oTHa5z6Is?usp=sharing'>[Google Drive Link]</a><br>
 Put the `data` folder at the top level directory.
 
-<b>Models:</b> <br>
-For identification models, put the `model_checkpoints` folder at the top level directory. For verification models, put the `models` folder inside `src/AMTGAN/assets/`.
+<b>Models:</b> <a href='https://drive.google.com/drive/folders/1bvSvoxfuWdn5UVhhwlV7_9_oTHa5z6Is?usp=sharing'>[Google Drive Link]</a><br>
+Put the `model_checkpoints` folder at the top level directory.
 
 ### Running the Code
 We provide a handler script in that allows for batch submission of Slurm jobs to run experiments with different parameters. This file contains a description of each config variable. Once run, it creates a script for submitting a Slurm job for each combination of hyperparameters enumerated in the file. You can run this script with:
@@ -38,10 +38,10 @@ The outputs of both of these runs will be stored in `outputs/{run_name}` where `
 # Acknowledgements
 Thank you to the following repositories for providing open source code that assisted with the development of this project:
 <ul>
-  <li><a href='https://github.com/Shawn-Shan/fawkes'>Fawkes</li>
-  <li><a href='https://github.com/liuxuannan/AdvCloak'>AdvCloak</li>
-  <li><a href='https://github.com/CGCL-codes/AMT-GAN'>AMT-GAN</li>
-  <li><a href='https://github.com/foivospar/Arc2Face'>Arc2Face</li>
-  <li><a href='https://github.com/deepinsight/insightface'>InsightFace</li>
+  <li><a href='https://github.com/Shawn-Shan/fawkes'>Fawkes</a></li>
+  <li><a href='https://github.com/liuxuannan/AdvCloak'>AdvCloak</a></li>
+  <li><a href='https://github.com/CGCL-codes/AMT-GAN'>AMT-GAN</a></li>
+  <li><a href='https://github.com/foivospar/Arc2Face'>Arc2Face</a></li>
+  <li><a href='https://github.com/deepinsight/insightface'>InsightFace</a></li>
 </ul>
 
