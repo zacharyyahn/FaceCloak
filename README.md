@@ -24,7 +24,7 @@ Put the `data` folder at the top level directory.
 Put the `model_checkpoints` folder at the top level directory.
 
 ### Running the Code
-We provide a handler script in that allows for batch submission of Slurm jobs to run experiments with different parameters. This file contains a description of each config variable. Once run, it creates a script for submitting a Slurm job for each combination of hyperparameters enumerated in the file. You can run this script with:
+We provide a handler script in that allows for batch submission of Slurm jobs to run face identification experiments with different parameters. This file contains a description of each config variable. Once run, it creates a script for submitting a Slurm job for each combination of hyperparameters enumerated in the file. You can run this script with:
 ```
 python src/run_cloak_experiments.py
 ```
