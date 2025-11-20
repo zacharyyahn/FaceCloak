@@ -44,7 +44,7 @@ parser.add_argument("--percep_loss_weight", type=str, default=0.0, help="Weighte
 parser.add_argument("--mode", type=str, default="perturb", help="Whether to use perturb mode, multi mode, or makeup mode")
 parser.add_argument("--makeup_mode", type=str, default="diffam", help="Which makeup method to use, either diffam or amt-gan")
 parser.add_argument("--gen_save_path", type=str, default="/", help="Path to save generated images, if using")
-parser.add_argument("--num_gen_iterations", type=int, default=5, help="Gen iterations when using minmax")
+parser.add_argument("--num_gen_iterations", type=int, default=5, help="Gen iterations if using")
 parser.add_argument("--gen_learning_rate", type=float, default=0.1, help="Default learning rate for generating images")
 parser.add_argument("--num_images_to_gen", type=int, default=4)
 parser.add_argument("--use_real", type=int, default=0, help="Whether to use real images for training instead of synthetic if they're available")
@@ -64,7 +64,6 @@ args.multi_cloak_function_max_pert = args.multi_cloak_function_max_pert / 255.
 # Below are all of the possible cloak functions, cloak losses, distance functions, normalization functions, and perceptual losses
 cloak_funcs = {
         "pgd_cloak":pgd_cloak,
-        "minmax_cloak":minmax_cloak,
         "pgd_cloak_multi":pgd_cloak_multi,
         "sgd_cloak":sgd_cloak,
         "afog_cloak":afog_cloak,
