@@ -7,6 +7,7 @@ import numpy as np
 import os
 import sys
 import yaml
+import io
 import math
 import warnings
 from facedataset import FaceDataset
@@ -31,7 +32,7 @@ from utils import pipeline_forward_with_grad
 from diffusers import StableDiffusionPipeline, UNet2DConditionModel, DPMSolverMultistepScheduler
 from insightface.app import FaceAnalysis
 import onnxruntime as ort
-from PIL import Image
+from PIL import Image, ImageFilter
 from insightface_code.recognition.arcface_torch.backbones import get_model
 from blazeface.blazeface import BlazeFace
 from advcloak.model_irse import IR_50
@@ -116,8 +117,9 @@ class Cloaker():
             self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.5) # was 640, 640
 
             self.backup_arcface_model = get_model("r100", fp16=False)
-            self.backup_arcface_model.load_state_dict(torch.load("model_checkpoints/arcface_r100_ms1mv3.pth", map_location=self.device))
+            self.backup_arcface_model.load_state_dict(torch.load("model_checkpoints/ms1mv3_arcface_r100_fp16.pth", map_location=self.device))
             self.backup_arcface_model.eval().to(device=self.device, dtype=torch.float16)
+
 
         # Declare all the models we'll be using
         arcface = IR_50((112, 112))
@@ -131,9 +133,9 @@ class Cloaker():
         irse50 = IR_SE_50((112, 112))
         mf = MobileFaceNet(512)
         
-        arcface.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-ArcFace-casia/Backbone_IR_50_Epoch_73_Batch_138000_Time_2020-05-07-23-48_checkpoint.pth", map_location=self.device))
-        cosface.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-CosFace-casia/Backbone_IR_50_Epoch_74_Batch_140000_Time_2020-05-27-21-38_checkpoint.pth", map_location=self.device))
-        softmax.load_state_dict(torch.load("model_checkpoints/models/surrogate/IR_50-Softmax-casia/Backbone_IR_50_Epoch_94_Batch_180000_Time_2020-03-30-01-55_checkpoint.pth", map_location=self.device))
+        arcface.load_state_dict(torch.load("model_checkpoints/arcface.pth", map_location=self.device))
+        cosface.load_state_dict(torch.load("model_checkpoints/cosface.pth", map_location=self.device))
+        softmax.load_state_dict(torch.load("model_checkpoints/softmax.pth", map_location=self.device))
         facenet.load_state_dict(torch.load("src/AMTGAN/assets/models/facenet.pth"))
         ir152.load_state_dict(torch.load("src/AMTGAN/assets/models/ir152.pth"))
         irse50.load_state_dict(torch.load("src/AMTGAN/assets/models/irse50.pth"))
@@ -405,7 +407,7 @@ class Cloaker():
             best_target.append((self.gallery_paths[top_n_indices[i]], top_n_dists[i].item()))
             num_found += 1
 
-        print("Closest is", best_target, " and has distance:", sorted_dists[0])
+        #print("Closest is", best_target, " and has distance:", sorted_dists[0])
 
 
         if self.verbosity == "log": print("Target for", path, "is", best_target)
@@ -723,9 +725,8 @@ class Cloaker():
         for path in these_paths:
             num += 1
             start_full = time.perf_counter()
-            if num > num_images:
-                break
-            print("\n\n====== MinMax Cloaking (", str(num), "/", str(num_images), ":", path, ") =======\n\n")
+    
+            print("\n\n====== MinMax Cloaking (", str(num), "/", str(len(these_paths)), ":", path, ") =======\n\n")
             if self.verbosity == "log": print("Cloaking image", path)
 
             orig_farthest_path = self.get_farthest(path, self.extractor)
@@ -778,6 +779,7 @@ class Cloaker():
             # Calculate PSNR, SSIM, and MSE before fine-tuning
             try:
                 total_ssim_before += structural_similarity(orig_im, image, channel_axis=2, data_range=255.0)
+                mse = np.mean(np.square((orig_im - image)))
                 total_mse_before += mse
                 total_psnr_before += 20.0 * log10(255.0 / sqrt(mse))
             except Exception as e:
@@ -856,9 +858,18 @@ class Cloaker():
         total_ssim_before, total_ssim_after = 0.0, 0.0
         total_psnr_before, total_psnr_after = 0.0, 0.0
         total_mse_before, total_mse_after = 0.0, 0.0
-        total_correct_top1 = {model: 0 for model in list(self.eval_models.keys())}
-        total_correct_top5 = {model: 0 for model in list(self.eval_models.keys())}
-        
+
+        transformations = {
+            "none":None,
+            "noise":self.transform_image_noise,
+            "blur":self.transform_image_blur,
+            "jpeg":self.transform_image_jpeg,
+            "brightness":self.transform_image_brightness,
+            "contrast":self.transform_image_contrast,
+        }
+
+        total_correct_top1 = {key: {model: 0 for model in list(self.eval_models.keys())} for key in transformations.keys()}
+        total_correct_top5 = {key: {model: 0 for model in list(self.eval_models.keys())} for key in transformations.keys()}
         total_time = 0.0
 
         # Set up the generation pipeline
@@ -894,40 +905,40 @@ class Cloaker():
             
             image = self.images[path]
 
-            # try:
-            #     # Fetch the mask
-            #     mask = self.multi_map[name]
-            #     sticker_handler = self.sticker_map[name]
-            #     print("==== Successfully loaded premade mask ====")
-            # except:
+            try:
+                # Fetch the mask
+                mask = self.multi_map[name]
+                sticker_handler = self.sticker_map[name]
+                print("==== Successfully loaded premade mask ====")
+            except:
             # Read in image and embed it with arcface
-            pil = Image.open(path).convert("RGB")
-            # border = max(pil.size) // 16  # ~12% padding
-            # pil = ImageOps.expand(pil, border=border, fill=(0, 0, 0))
-            w, h = pil.size
+                pil = Image.open(path).convert("RGB")
+                # border = max(pil.size) // 16  # ~12% padding
+                # pil = ImageOps.expand(pil, border=border, fill=(0, 0, 0))
+                w, h = pil.size
 
-            #pil = pil.resize((w*4, h*4), Image.BICUBIC)
-            image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
-            # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
-            # print("DEBUG: Detector model:", self.app.models['detection'])
+                #pil = pil.resize((w*4, h*4), Image.BICUBIC)
+                image_to_gen = np.array(pil)[:, :, ::-1]  # RGB to BGR
+                # print("DEBUG: image has shape and range", image_to_gen.shape, np.min(image_to_gen), np.max(image_to_gen))
+                # print("DEBUG: Detector model:", self.app.models['detection'])
 
-            # Track the paths of the saved images
-            gen_paths = []
+                # Track the paths of the saved images
+                gen_paths = []
 
-            if self.use_real:
-                gen_paths = self.use_real_images(path)
-            else:
-                gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
-            gen_paths.append(path)
+                if self.use_real:
+                    gen_paths = self.use_real_images(path)
+                else:
+                    gen_paths = self.generate_images(image_to_gen, path, gen_save_path)
+                gen_paths.append(path)
 
-            # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
-            start = time.perf_counter()
-            mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
-            end = time.perf_counter()
-            if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
-            self.multi_map[name] = mask.copy()
-            self.sticker_map[name] = sticker_handler
-            self.highpass_map[name] = highpass_handler
+                # Pass all of the fake image paths to the cloak_multi() function, as well as the real image for finding closest and farthest images, getting back the mask
+                start = time.perf_counter()
+                mask, sticker_handler, highpass_handler = self.cloak_multi(orig_im = path, img_paths=gen_paths, force_target=orig_farthest_path, force_closest=orig_closest_path)
+                end = time.perf_counter()
+                if self.verbosity == "error": print(f"Multi-cloaking images took {end-start:4f} seconds")
+                self.multi_map[name] = mask.copy()
+                self.sticker_map[name] = sticker_handler
+                self.highpass_map[name] = highpass_handler
 
                 # clean up by deleting generated images to save space
                 
@@ -999,7 +1010,7 @@ class Cloaker():
                 if self.verbosity == "error": print("No target found for image, skipping")
                 continue
 
-            # # Make sure this is available for use later. We save the image now so that when we convert back to BGR it doesn't affect the second metric test
+            # Make sure this is available for use later. We save the image now so that when we convert back to BGR it doesn't affect the second metric test
             total_path = save_dir + "/" + os.path.basename(path)[:os.path.basename(path).find(".")] + ".jpg"
             self.boxes[total_path] = boxes.copy()
             self.images[total_path] = image.copy()
@@ -1008,16 +1019,30 @@ class Cloaker():
                 if self.verbosity == "log": print("Saving to", save_dir + os.path.basename(path))
                 Image.fromarray(image).save(total_path)
 
-            # Evaluate which image in the gallery the cloaked probe would match with
-            results_start = time.perf_counter()
-            results_top1 = self.eval_on_all_models(total_path, n=1)
-            for model in results_top1.keys():
-                total_correct_top1[model] += results_top1[model]
-            
-            results_top5 = self.eval_on_all_models(total_path, n=5)
-            for model in results_top5.keys():
-                total_correct_top5[model] += results_top5[model]
-            results_end = time.perf_counter()
+            # Iterate over each transformation
+            image_save = image.copy()
+            print("Average value of image was originally:", np.mean(image_save))
+            for tf in transformations.keys():
+                if transformations[tf] is not None:
+                    transform_path = transformations[tf](total_path) # call the transform function
+                    print(f"After transform {tf} average value is now", np.mean(self.images[transform_path]))
+                else:
+                    transform_path = total_path
+
+                # Evaluate which image in the gallery the cloaked probe would match with
+                results_start = time.perf_counter()
+                results_top1 = self.eval_on_all_models(transform_path, n=1)
+                for model in results_top1.keys():
+                    total_correct_top1[tf][model] += results_top1[model]
+                
+                results_top5 = self.eval_on_all_models(transform_path, n=5)
+                for model in results_top5.keys():
+                    total_correct_top5[tf][model] += results_top5[model]
+                results_end = time.perf_counter()
+
+                # Delete the transformed image since we won't use it again
+                if transformations[tf] is not None:
+                    self.images[transform_path] = None
             print(f"Calculating results took: {results_end-results_start:.4f} seconds")
             
             if self.mode == "multi_finetune":
@@ -1061,14 +1086,16 @@ class Cloaker():
         print("\n---- Timing ----")
         print(f"\nAverage Iteration Time: {total_time / num:.4f}")
         
-        print("\n---- Top-1 Accuracy/PSR -----")
-        for model in self.eval_models:
-            #print(f"{model} Accuracy: {total_correct_top1[model] / num:.4f}")
-            print(f"{model} PSR: {1 - total_correct_top1[model] / num:.4f}")
-        print("\n---- Top-5 Accuracy/PSR -----")
-        for model in self.eval_models:
-            #print(f"{model} Accuracy: {total_correct_top5[model] / num:.4f}")
-            print(f"{model} PSR: {1 - total_correct_top5[model] / num:.4f}")
+        for tf in transformations:
+            print(f"==== Transformation: {tf} ====")
+            print("\n---- Top-1 Accuracy/PSR -----")
+            for model in self.eval_models:
+                #print(f"{model} Accuracy: {total_correct_top1[model] / num:.4f}")
+                print(f"{model} PSR: {1 - total_correct_top1[tf][model] / num:.4f}")
+            print("\n---- Top-5 Accuracy/PSR -----")
+            for model in self.eval_models:
+                #print(f"{model} Accuracy: {total_correct_top5[model] / num:.4f}")
+                print(f"{model} PSR: {1 - total_correct_top5[tf][model] / num:.4f}")
 
     # Apply makeup to all of the images in the dataset
     def makeup_all(self, save_dir=None, makeup_mode="DiffAM"):
@@ -1235,6 +1262,7 @@ class Cloaker():
 
     # Evaluate the given image on every eval model and return the accuracies
     def eval_on_all_models(self, path, n):
+
         # CelebA only has 1 for each identity
         if self.probe_dataset_path in ["data/celeba/probe", "data/celeba_small/probe", "data/celeba_verify/group1_probe", "data/celeba_verify/group2_probe", "data/celeba_verify/group3_probe", "data/celeba_verify/group4_probe", "data/celeba_verify/group5_probe"]:
             num_comparisons = 1
@@ -1242,21 +1270,152 @@ class Cloaker():
             num_comparisons = 4
         results = {model: 0 for model in self.eval_models.keys()}
         for model in self.eval_models.keys():
-            misses = n - 1
-            print("=== Eval Model: ", model, " ===")
+            misses = n-1
+            #print("=== Eval Model: ", model, " ===")
+            
+            image_save = self.images[path].copy()
+
             closest = self.get_closest(path, model, no_self=True, n=n+num_comparisons-1)
-            print(closest)
-            for i, closest_one in enumerate(closest):
+            #print(closest)
+            for _, closest_one in enumerate(closest):
                 if os.path.basename(path)[:os.path.basename(path).find("_")] == os.path.basename(closest_one[0])[:os.path.basename(closest_one[0]).find("_")]:
                     results[model] += 1.0 / num_comparisons
                 else:
                     if misses <= 0:
                         break
                     misses -= 1
-                    
-            print("Score:", results[model])
+       
+                #print(f"Score:", results[model])
         return results
 
+    """
+    Takes an image from self.images[path] and modifies it with gaussian noise, returning the new path.
+    It needs to read/write directly from self.images[path] so that the other code, which reads from there, works.
+    The rest of the loop in the eval function will overwrite this again with the original image.
+    """
+    def transform_image_noise(self, path, sigma=7.0):
+        # Grab image as NumPy array
+        img = self.images[path].astype(np.float32)
+
+        # Generate Gaussian noise
+        noise = np.random.normal(loc=0.0, scale=sigma, size=img.shape)
+
+        # Add noise
+        noisy_img = img + noise
+
+        # Clip to valid range and convert back
+        noisy_img = np.clip(noisy_img, 0, 255).astype(np.uint8)
+
+        # Get new path
+        transform_path = path[:-4] + "_noise.jpg"
+
+        # Write back
+        self.images[transform_path] = noisy_img
+
+        return transform_path
+
+    """
+    Takes an image from self.images[path] and modifies it with JPEG compression, returning the new path.
+    It needs to read/write directly from self.images[path] so that the other code, which reads from there, works.
+    The rest of the loop in the eval function will overwrite this again with the original image.
+    """
+    def transform_image_blur(self, path, sigma=0.8):
+        # Retrieve np image
+        img = self.images[path].astype(np.float32)
+
+        # Convert float images to uint8 safely
+        if img.dtype != np.uint8:
+            img = np.clip(img, 0, 255)
+            img = img.astype(np.uint8)
+        
+        # Convert to PIL format
+        pil_img = Image.fromarray(img)
+
+        # Blur image with Gaussian kernel
+        blurred_img = np.array(pil_img.filter(ImageFilter.GaussianBlur(radius=sigma)))
+
+        transform_path = path[:-4] + "_blur.jpg"
+
+        # Write back
+        self.images[transform_path] = blurred_img
+        
+        return transform_path
+
+    """
+    Takes an image from self.images[path] and modifies it with JPEG compression, returning the new path.
+    It needs to read/write directly from self.images[path] so that the other code, which reads from there, works.
+    The rest of the loop in the eval function will overwrite this again with the original image.
+    """
+    def transform_image_jpeg(self, path, quality=70):
+        img = self.images[path]
+
+        # Convert float images to uint8 safely
+        if img.dtype != np.uint8:
+            img = np.clip(img, 0, 255)
+            img = img.astype(np.uint8)
+
+        pil_img = Image.fromarray(img)
+
+        buffer = io.BytesIO()
+        pil_img.save(buffer, format="JPEG", quality=quality)
+        buffer.seek(0)
+
+        compressed_img = np.array(Image.open(buffer))
+
+        transform_path = path[:-4] + "_jpeg.jpg"
+        self.images[transform_path] = compressed_img
+
+        return transform_path
+
+    """
+    Takes an image from self.images[path] and modifies it with brightness change, returning the new path.
+    It needs to read/write directly from self.images[path] so that the other code, which reads from there, works.
+    The rest of the loop in the eval function will overwrite this again with the original image.
+    """
+    def transform_image_brightness(self, path, factor=1.20):
+        # Grab image
+        img = self.images[path].astype(np.float32)
+
+        # Adjust brightness
+        bright_img = img * factor
+
+        # Clip and convert back
+        bright_img = np.clip(bright_img, 0, 255).astype(np.uint8)
+
+        # Get modified path
+        transform_path = path[:-4] + "_brightness.jpg"
+
+        # Write back
+        self.images[transform_path] = bright_img
+
+        return transform_path
+
+    """
+    Takes an image from self.images[path] and modifies it with contrast change, returning the new path.
+    It needs to read/write directly from self.images[path] so that the other code, which reads from there, works.
+    The rest of the loop in the eval function will overwrite this again with the original image.
+    """
+    def transform_image_contrast(self, path, factor=1.20):
+        # Grab image
+        img = self.images[path].astype(np.float32)
+
+        # Compute mean per channel (or scalar for grayscale)
+        mean = img.mean(axis=(0, 1), keepdims=True)
+
+        # Adjust contrast
+        contrast_img = (img - mean) * factor + mean
+
+        # Clip and convert back
+        contrast_img = np.clip(contrast_img, 0, 255).astype(np.uint8)
+
+        # Get new path
+        transform_path = path[:-4] + "_contrast.jpg"
+
+        # Write back
+        self.images[transform_path] = contrast_img
+
+        return transform_path
+    
     def generate_images(self, image_to_gen, path, gen_save_path):
         gen_paths = []
         file_name = os.path.basename(path)[:os.path.basename(path).find(".")]
@@ -1330,7 +1489,7 @@ class Cloaker():
         return gen_paths
     
     def use_real_images(self, path):
-        count = 8
+        count = self.num_images_to_generate # use the same number as we would've used for synthetic
         paths = []
         dataset_dir = os.path.dirname(self.probe_dataset_path)
         for im in os.listdir(dataset_dir + "/train"):
@@ -1343,6 +1502,3 @@ class Cloaker():
                     return paths
         
         return paths
-
-    def apply_defense(self):
-        None

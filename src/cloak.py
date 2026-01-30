@@ -11,7 +11,6 @@ from loss_functions import fawkes_loss, triplet_loss, dssim_loss, lpips_loss, ms
 from dist_functions import cosine_dist, l2_dist
 from advcloak.model_irse import IR_50
 from utils import preprocess_tanh, reverse_tanh, preprocess_divide, reverse_divide
-from insightface_code.recognition.arcface_torch.backbones import get_model
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--probe_dataset_path", type=str, help="Path to probe images")
