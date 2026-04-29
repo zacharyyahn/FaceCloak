@@ -45,3 +45,5 @@ Thank you to the following repositories for providing open source code that assi
   <li><a href='https://github.com/deepinsight/insightface'>InsightFace</a></li>
 </ul>
 
+This work was funded by the Georgia Tech Research Institute PhD Fellowship.
+
